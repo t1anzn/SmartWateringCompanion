@@ -10,27 +10,33 @@ export default function StartScreen() {
   const colorScheme = useColorScheme() ?? "light";
   const colors = Colors[colorScheme];
 
-  // Check if onboarding has been completed
+  // Check if onboarding has been completed and if plant setup has been done
   useEffect(() => {
-    const checkOnboarding = async () => {
+    const checkSetupStatus = async () => {
       try {
         const hasCompletedOnboarding = await AsyncStorage.getItem(
           "hasCompletedOnboarding"
         );
+        const hasPlants = await AsyncStorage.getItem("hasPlants");
 
         if (hasCompletedOnboarding === "true") {
-          // User has completed onboarding, they can go to main app
-          console.log("Onboarding already completed");
+          if (hasPlants === "true") {
+            // User has completed both onboarding and plant setup, go to main app
+            router.replace("/(tabs)");
+          } else {
+            // User has completed onboarding but not plant setup
+            router.replace("/plant-setup");
+          }
         } else {
           // User hasn't completed onboarding, redirect to onboarding
           router.replace("/onboarding");
         }
       } catch (error) {
-        console.error("Failed to check onboarding status:", error);
+        console.error("Failed to check setup status:", error);
       }
     };
 
-    checkOnboarding();
+    checkSetupStatus();
   }, [router]);
 
   console.log("StartScreen rendered");

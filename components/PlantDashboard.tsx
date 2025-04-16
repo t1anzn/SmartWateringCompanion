@@ -5,48 +5,150 @@ import {
   TouchableOpacity,
   Image,
   Switch,
+  TextInput,
 } from "react-native";
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export default function PlantDashboard() {
-  const [lastWatered, setLastWatered] = useState("April 10, 2025");
-  const [waterLevel, setWaterLevel] = useState(72); // Percentage of water in the reservoir
+  const [plant, setPlant] = useState<Plant | null>(null);
+  const [waterLevel, setWaterLevel] = useState(72);
   const [autoWateringEnabled, setAutoWateringEnabled] = useState(true);
-  const [nextScheduledWatering, setNextScheduledWatering] =
-    useState("April 17, 2025");
+  const [wateringFrequency, setWateringFrequency] = useState(7);
+  const [lastWatered, setLastWatered] = useState("");
+  const [nextScheduledWatering, setNextScheduledWatering] = useState("");
   const colorScheme = useColorScheme() ?? "light";
   const colors = Colors[colorScheme];
 
-  const handleWaterPlant = () => {
-    const today = new Date().toLocaleDateString("en-UK", {
+  // Load plant data on component mount
+  useEffect(() => {
+    const loadPlantData = async () => {
+      try {
+        const plantsData = await AsyncStorage.getItem("plants");
+
+        if (plantsData) {
+          const plants = JSON.parse(plantsData);
+          if (plants.length > 0) {
+            // For now, just use the first plant
+            const currentPlant = plants[0];
+            setPlant(currentPlant);
+            setWateringFrequency(currentPlant.wateringFrequency);
+
+            // Format the dates for display
+            const lastWateredDate = new Date(currentPlant.lastWatered);
+            setLastWatered(formatDateWithTime(lastWateredDate));
+
+            const nextWateringDate = new Date(currentPlant.nextWatering);
+            setNextScheduledWatering(formatDateWithoutTime(nextWateringDate));
+          }
+        }
+      } catch (error) {
+        console.error("Error loading plant data:", error);
+      }
+    };
+
+    loadPlantData();
+  }, []);
+
+  // Format date with time: April 16, 2025, 2:30 PM
+  const formatDateWithTime = (date: Date): string => {
+    return (
+      date.toLocaleDateString("en-UK", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+      }) +
+      ", " +
+      date.toLocaleTimeString("en-UK", {
+        hour: "numeric",
+        minute: "numeric",
+        hour12: true,
+      })
+    );
+  };
+
+  // Format date without time: April 16, 2025
+  const formatDateWithoutTime = (date: Date): string => {
+    return date.toLocaleDateString("en-UK", {
       year: "numeric",
       month: "long",
       day: "numeric",
     });
-    setLastWatered(today);
+  };
 
-    // Simulate water level decrease (in a real app this would come from sensor)
+  const handleWaterPlant = async () => {
+    const now = new Date();
+    const formattedNow = formatDateWithTime(now);
+
+    setLastWatered(formattedNow);
+
+    // Simulate water level decrease
     setWaterLevel((prevLevel) => Math.max(prevLevel - 5, 0));
 
-    // Update next watering date (in a real app this would be calculated based on plant needs)
+    // Update next watering date
     const nextDate = new Date();
-    nextDate.setDate(nextDate.getDate() + 7); // Next watering in 7 days
-    setNextScheduledWatering(
-      nextDate.toLocaleDateString("en-UK", {
-        year: "numeric",
-        month: "long",
-        day: "numeric",
-      })
-    );
+    nextDate.setDate(nextDate.getDate() + wateringFrequency);
+    const formattedNextDate = formatDateWithoutTime(nextDate);
+    setNextScheduledWatering(formattedNextDate);
+
+    // Update plant data in storage
+    try {
+      const plantsData = await AsyncStorage.getItem("plants");
+      if (plantsData) {
+        const plants = JSON.parse(plantsData);
+        if (plants.length > 0) {
+          plants[0].lastWatered = now.toISOString();
+          plants[0].nextWatering = nextDate.toISOString();
+          await AsyncStorage.setItem("plants", JSON.stringify(plants));
+        }
+      }
+    } catch (error) {
+      console.error("Error updating plant data:", error);
+    }
   };
 
   const toggleAutoWatering = () => {
     setAutoWateringEnabled((prevState) => !prevState);
   };
 
-  // Determine water level status and color
+  // Update wateringFrequency and next scheduled date
+  interface Plant {
+    name: string;
+    type: string;
+    wateringFrequency: number;
+    lastWatered: string;
+    nextWatering: string;
+  }
+
+  const updateWateringFrequency = async (frequency: number): Promise<void> => {
+    if (frequency > 0) {
+      setWateringFrequency(frequency);
+
+      const nextDate = new Date();
+      nextDate.setDate(nextDate.getDate() + frequency);
+      const formattedNextDate = formatDateWithoutTime(nextDate);
+      setNextScheduledWatering(formattedNextDate);
+
+      // Update plant data in storage
+      try {
+        const plantsData = await AsyncStorage.getItem("plants");
+        if (plantsData) {
+          const plants: Plant[] = JSON.parse(plantsData);
+          if (plants.length > 0) {
+            plants[0].wateringFrequency = frequency;
+            plants[0].nextWatering = nextDate.toISOString();
+            await AsyncStorage.setItem("plants", JSON.stringify(plants));
+          }
+        }
+      } catch (error) {
+        console.error("Error updating watering frequency:", error);
+      }
+    }
+  };
+
+  // Water level indicators
   const getWaterLevelStatus = () => {
     if (waterLevel >= 70) return { text: "Good", color: colors.tint };
     if (waterLevel >= 30) return { text: "Moderate", color: "#FFC107" };
@@ -54,6 +156,22 @@ export default function PlantDashboard() {
   };
 
   const waterLevelStatus = getWaterLevelStatus();
+
+  // If plant data is not loaded yet, show loading state
+  if (!plant) {
+    return (
+      <View
+        style={[
+          styles.container,
+          { backgroundColor: colorScheme === "dark" ? "#1E1E1E" : "#FFFFFF" },
+        ]}
+      >
+        <Text style={[styles.title, { color: colors.text }]}>
+          Loading plant data...
+        </Text>
+      </View>
+    );
+  }
 
   return (
     <View
@@ -69,14 +187,16 @@ export default function PlantDashboard() {
           resizeMode="contain"
         />
         <View>
-          <Text style={[styles.title, { color: colors.text }]}>Aloe Vera</Text>
+          <Text style={[styles.title, { color: colors.text }]}>
+            {plant.name}
+          </Text>
           <Text
             style={[
               styles.plantType,
               { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
             ]}
           >
-            Succulent
+            {plant.type}
           </Text>
         </View>
       </View>
@@ -147,10 +267,73 @@ export default function PlantDashboard() {
               onValueChange={toggleAutoWatering}
               trackColor={{
                 false: "#767577",
-                true: colorScheme === "dark" ? "#81C784" : "#C8E6C9",
+                true: colorScheme === "dark" ? "#fff" : "#C8E6C9",
               }}
               thumbColor={autoWateringEnabled ? colors.tint : "#f4f3f4"}
             />
+          </View>
+        </View>
+
+        <View style={styles.infoItem}>
+          <Text
+            style={[
+              styles.infoLabel,
+              { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
+            ]}
+          >
+            Watering Frequency
+          </Text>
+
+          <View style={styles.frequencyInputContainer}>
+            <TextInput
+              style={[
+                styles.frequencyInput,
+                {
+                  backgroundColor:
+                    colorScheme === "dark" ? "#2C2C2C" : "#F5F5F5",
+                  color: colors.text,
+                  borderColor: colorScheme === "dark" ? "#444" : "#E0E0E0",
+                },
+              ]}
+              value={
+                wateringFrequency === 0 ? "" : wateringFrequency.toString()
+              }
+              onChangeText={(text) => {
+                if (text === "") {
+                  setWateringFrequency(0);
+                  return;
+                }
+
+                // Parse the input as a number
+                const frequency = parseInt(text);
+                // Only update if it's a valid positive number
+                if (!isNaN(frequency) && frequency > 0) {
+                  updateWateringFrequency(frequency);
+                }
+              }}
+              onBlur={() => {
+                // If a valid frequency is set, ensure next watering date is updated
+                if (wateringFrequency > 0) {
+                  updateWateringFrequency(wateringFrequency);
+                }
+              }}
+              keyboardType="numeric"
+              placeholder="Days"
+              placeholderTextColor={
+                colorScheme === "dark" ? "#9BA1A6" : "#BDBDBD"
+              }
+              editable={autoWateringEnabled}
+            />
+            <Text
+              style={[
+                styles.frequencyUnit,
+                { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
+              ]}
+            >
+              {wateringFrequency > 0
+                ? `day${wateringFrequency !== 1 ? "s" : ""} between watering`
+                : ""}
+            </Text>
           </View>
         </View>
 
@@ -164,6 +347,7 @@ export default function PlantDashboard() {
           >
             Last Watered
           </Text>
+
           <Text style={[styles.infoValue, { color: colors.text }]}>
             {lastWatered}
           </Text>
@@ -288,6 +472,24 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
+  },
+  frequencyInputContainer: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginVertical: 4,
+  },
+  frequencyInput: {
+    fontSize: 16,
+    width: 70,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    textAlign: "center",
+  },
+  frequencyUnit: {
+    fontSize: 14,
+    marginLeft: 10,
   },
   scheduleText: {
     fontSize: 12,

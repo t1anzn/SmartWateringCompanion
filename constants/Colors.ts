@@ -18,6 +18,9 @@ export const Colors = {
     icon: darkGreen,
     tabIconDefault: '#687076',
     tabIconSelected: primaryGreen,
+    textInput: '#2C2C2C',
+    textInputBorder: '#444',
+    placeHolderText: '#616161'
   },
   dark: {
     text: '#ECEDEE',
@@ -26,5 +29,8 @@ export const Colors = {
     icon: '#9BA1A6',
     tabIconDefault: '#9BA1A6',
     tabIconSelected: lightGreen,
+    textInput: '#F5F5F5',
+    textInputBorder: '#E0E0E0',
+    placeHolderText: '#BDBDBD',
   },
 };

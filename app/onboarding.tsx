@@ -23,7 +23,7 @@ export default function OnboardingScreen() {
       try {
         await AsyncStorage.setItem("userName", name.trim());
         await AsyncStorage.setItem("hasCompletedOnboarding", "true");
-        router.push("/(tabs)");
+        router.push("/plant-setup"); // Redirect to plant setup instead of tabs
       } catch (error) {
         console.error("Failed to save user name:", error);
       }
