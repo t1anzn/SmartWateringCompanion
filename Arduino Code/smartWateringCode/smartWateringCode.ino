@@ -7,7 +7,6 @@
 WiFiSSLClient sslClient;
 MqttClient mqttClient(sslClient);
 
-
 Firebase fb(REFERENCE_URL); // Test Mode
 // Firebase fb(REFERENCE_URL, AUTH_TOKEN); //Locked Mode (With Authentication)
 
@@ -20,7 +19,10 @@ Firebase fb(REFERENCE_URL); // Test Mode
 // const int mqtt_port
 
 // Topic to publish to
-const char* manualWateringTopic = "plantSystem/manualWatering"; 
+const char* manualWateringTopic = "plantSystem/manualWatering";
+const char* autoWateringTopic = "plantSystem/autoWatering";
+const char* soilMoistureTopic = "plantSystem/soilMoisture"; 
+const char* waterLevelTopic = "plantSystem/waterLevel";
 
 int status = WL_IDLE_STATUS;     // the WiFi radio's status
 
@@ -34,21 +36,29 @@ const int ledPin = 10;            // LED for status indication (connected to D10
 int moistureLevel;
 long duration;
 long distance;
+bool manualOverride = false; // Track manual watering state
+bool isAutoWateringEnabled = true; // Track if auto-watering is enabled or disabled
+const int MOISTURE_THRESHOLD = 100; // Match the threshold used in the app
 
+unsigned long wateringEndTime = 0;
+bool wateringTimerActive = false;
 
 // Connecting to MQTT Broker - Loop until connected
 void reconnect() {
+  // Simplified reconnect function - fewer debug statements, similar to what worked before
   while (!mqttClient.connected()) {
     Serial.print("Attempting MQTT connection...");
     
     String clientId = "ArduinoClient-";
     clientId += String(random(0xffff), HEX); // Create random client ID
-    mqttClient.setId(clientId.c_str()); // Set client ID
+    mqttClient.setId(clientId.c_str());
+    
     mqttClient.setUsernamePassword(mqtt_username, mqtt_password);
-
     if (mqttClient.connect(mqtt_server, mqtt_port)) {
       Serial.println("Connected to MQTT!");
-      mqttClient.subscribe(manualWateringTopic);  // Subscribe to topics here
+      mqttClient.subscribe(manualWateringTopic);
+      mqttClient.subscribe(autoWateringTopic);
+      return;
     } else {
       Serial.print("Failed, code=");
       Serial.print(mqttClient.connectError());
@@ -57,6 +67,76 @@ void reconnect() {
     }
   }
 }
+
+void handleIncomingMessage(int messageSize) {
+  String topic = mqttClient.messageTopic();
+  String message = "";
+  while (mqttClient.available()) {
+    char c = (char)mqttClient.read();
+    message += c;
+  }
+
+  Serial.print("Received MQTT message on topic: ");
+  Serial.print(topic);
+  Serial.print(" - ");
+  Serial.println(message);
+
+  // Handle messages for manual watering topic
+  if(topic.equals(manualWateringTopic)) {
+    // Check if the message is the new JSON format with duration
+    if(message.indexOf("{") >= 0) {
+      // Try to parse as JSON
+      int actionStart = message.indexOf("\"action\":\"") + 10;
+      int actionEnd = message.indexOf("\"", actionStart);
+      String action = message.substring(actionStart, actionEnd);
+      
+      // Extract duration if available
+      unsigned long duration = 5000; // Default 5 seconds
+      if(message.indexOf("\"duration\":") >= 0) {
+        int durationStart = message.indexOf("\"duration\":") + 11;
+        int durationEnd = message.indexOf("}", durationStart);
+        if(durationEnd < 0) durationEnd = message.indexOf(",", durationStart);
+        String durationStr = message.substring(durationStart, durationEnd);
+        duration = durationStr.toInt();
+      }
+      
+      if(action == "ON") {
+        manualOverride = true;
+        digitalWrite(ledPin, HIGH); // Turn on pump
+        Serial.print("Manual Watering: ON for ");
+        Serial.print(duration);
+        Serial.println(" milliseconds");
+        
+        // Set watering end time for automatic shutoff
+        wateringEndTime = millis() + duration;
+        wateringTimerActive = true;
+      }
+    }
+    // Handle legacy ON/OFF messages for backward compatibility
+    else if(message == "ON") {
+      manualOverride = true;
+      digitalWrite(ledPin, HIGH); // Turn on pump
+      Serial.println("Manual Watering: ON (legacy command)");
+    } 
+    else if(message == "OFF") {
+      manualOverride = false;
+      digitalWrite(ledPin, LOW); // Turn off pump
+      wateringTimerActive = false; // Cancel any active timer
+      Serial.println("Manual watering: OFF");
+    }
+  }
+  
+  // Handle messages for automatic watering topic
+  if(topic.equals(autoWateringTopic) && message == "ON") {
+    digitalWrite(ledPin, HIGH); // Turn on pump
+    Serial.println("Auto Watering: ON");
+  } else if(topic.equals(autoWateringTopic) && message == "OFF") {
+    digitalWrite(ledPin, LOW); // Turn off pump
+    Serial.println("Auto watering: OFF");
+    // Don't change manualOverride as auto watering is a temporary state
+  }
+}
+
 
 void setup() {
   // Start serial communication
@@ -90,17 +170,17 @@ void setup() {
   Serial.println(ip);
 
   Serial.print("Connecting to MQTT broker...");
+  Serial.println("Using HiveMQ Cloud broker");
   mqttClient.setUsernamePassword(mqtt_username, mqtt_password);
-
-  reconnect(); // Call the reconnect method to connect to MQTT
-
-   Serial.println("Connected to MQTT broker!");
+  
+  reconnect();
+  mqttClient.onMessage(handleIncomingMessage);
 
    // Publish test message
-   mqttClient.beginMessage(manualWateringTopic);
-   mqttClient.print("Hello from Arduino Uno R4 WiFi!");
-   mqttClient.endMessage();
-   Serial.println("Test message sent!");
+  //  mqttClient.beginMessage(manualWateringTopic);
+  //  mqttClient.print("Hello from Arduino Uno R4 WiFi!");
+  //  mqttClient.endMessage();
+  //  Serial.println("Test message sent!");
 
 
   // Initialize the sensors
@@ -109,16 +189,22 @@ void setup() {
   pinMode(echoPin, INPUT); // Ultrasonic sensor ECHO pin
 }
 
-
-
-
-
 void loop() {
-  // Flashing LED Test
-  // digitalWrite(ledPin, HIGH);  // Turn the LED ON
-  // delay(1000);                  // Wait for 1 second
-  // digitalWrite(ledPin, LOW);   // Turn the LED OFF
-  // delay(1000);                  // Wait for 1 second
+  // Check if we're connected to MQTT, if not, try to reconnect
+  if (!mqttClient.connected()) {
+    Serial.println("MQTT connection lost, attempting to reconnect...");
+    reconnect();
+  }
+  
+  mqttClient.poll(); // This checks for new messages from the broker
+
+  // Check if watering timer is active and needs to be turned off
+  if (wateringTimerActive && millis() >= wateringEndTime) {
+    manualOverride = false;
+    digitalWrite(ledPin, LOW); // Turn off pump
+    wateringTimerActive = false;
+    Serial.println("Watering timer completed, pump turned OFF");
+  }
 
   // ----- Ultrasonic Sensor Logic (Water Level Measurement)
 
@@ -151,16 +237,12 @@ void loop() {
   moistureLevel = analogRead(moistureSensorPin); // Read the sensor value
    //Serial.print("Soil Moisture Level: ");
    //Serial.println(moistureLevel); // Print the moisture level to the Serial Monitor
-
-  if (moistureLevel < 400) {
-    // Soil is dry
-    digitalWrite(ledPin, HIGH); // Turn on LED (simulate water pump)
-     //Serial.println("Soil is dry - Pump ON");
-
-  } else {
-    // Soil is wet
-    digitalWrite(ledPin, LOW); // Turn off LED
-     //Serial.println("Soil is wet - Pump OFF");
+  
+  // Only apply manual override if it's active
+  if (!manualOverride) {
+    // Don't automatically water based on moisture
+    // Just keep the pump off unless we get a command
+    digitalWrite(ledPin, LOW); // Turn off LED (pump)
   }
 
    //Serial.println("------");
@@ -175,6 +257,18 @@ void loop() {
   payload += "}";
 
   fb.setJson("sensorData", payload);
+  
+  // Send soil moisture data to MQTT
+  String soilMoisturePayload = "{\"value\": " + String(moistureLevel) + "}";
+  mqttClient.beginMessage(soilMoistureTopic);
+  mqttClient.print(soilMoisturePayload);
+  mqttClient.endMessage();
+
+  // Send water level data to MQTT
+  String waterLevelPayload = "{\"value\": " + String(distance) + "}";
+  mqttClient.beginMessage(waterLevelTopic);
+  mqttClient.print(waterLevelPayload);
+  mqttClient.endMessage();
 
   Serial.print("Done sending at: ");
   Serial.println(millis());
