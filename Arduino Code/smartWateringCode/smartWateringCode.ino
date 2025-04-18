@@ -1,15 +1,28 @@
 #include <WiFiS3.h>
+#include <WiFiSSLClient.h>
 #include "arduino_secrets.h"
 #include <Firebase.h>
+#include <ArduinoMqttClient.h>
 
-/* Test Mode */
-Firebase fb(REFERENCE_URL);
+WiFiSSLClient sslClient;
+MqttClient mqttClient(sslClient);
 
+
+Firebase fb(REFERENCE_URL); // Test Mode
+// Firebase fb(REFERENCE_URL, AUTH_TOKEN); //Locked Mode (With Authentication)
+
+/* WiFi credentials and HiveMC credentials from arduino_secrets.h */
+// const char* ssid
+// const char* pass
+// const char* mqtt_server
+// const char* mqtt_username
+// const char* mqtt_password
+// const int mqtt_port
+
+// Topic to publish to
+const char* manualWateringTopic = "plantSystem/manualWatering"; 
 
 int status = WL_IDLE_STATUS;     // the WiFi radio's status
-
-/* Locked Mode (With Authentication)*/
-// Firebase fb(REFERENCE_URL, AUTH_TOKEN);
 
 // Pin definitions
 const int moistureSensorPin = A0;
@@ -21,6 +34,29 @@ const int ledPin = 10;            // LED for status indication (connected to D10
 int moistureLevel;
 long duration;
 long distance;
+
+
+// Connecting to MQTT Broker - Loop until connected
+void reconnect() {
+  while (!mqttClient.connected()) {
+    Serial.print("Attempting MQTT connection...");
+    
+    String clientId = "ArduinoClient-";
+    clientId += String(random(0xffff), HEX); // Create random client ID
+    mqttClient.setId(clientId.c_str()); // Set client ID
+    mqttClient.setUsernamePassword(mqtt_username, mqtt_password);
+
+    if (mqttClient.connect(mqtt_server, mqtt_port)) {
+      Serial.println("Connected to MQTT!");
+      mqttClient.subscribe(manualWateringTopic);  // Subscribe to topics here
+    } else {
+      Serial.print("Failed, code=");
+      Serial.print(mqttClient.connectError());
+      Serial.println(" — trying again in 5 seconds");
+      delay(5000);
+    }
+  }
+}
 
 void setup() {
   // Start serial communication
@@ -53,21 +89,31 @@ void setup() {
   Serial.println("IP Address: ");
   Serial.println(ip);
 
+  Serial.print("Connecting to MQTT broker...");
+  mqttClient.setUsernamePassword(mqtt_username, mqtt_password);
+
+  reconnect(); // Call the reconnect method to connect to MQTT
+
+   Serial.println("Connected to MQTT broker!");
+
+   // Publish test message
+   mqttClient.beginMessage(manualWateringTopic);
+   mqttClient.print("Hello from Arduino Uno R4 WiFi!");
+   mqttClient.endMessage();
+   Serial.println("Test message sent!");
+
 
   // Initialize the sensors
   pinMode(ledPin, OUTPUT);  // LED Pin acting as the water pump
   pinMode(trigPin, OUTPUT); // Ultrasonic sensor TRIG pin 
   pinMode(echoPin, INPUT); // Ultrasonic sensor ECHO pin
-  
-  
-
-  
 }
 
 
 
-void loop() {
 
+
+void loop() {
   // Flashing LED Test
   // digitalWrite(ledPin, HIGH);  // Turn the LED ON
   // delay(1000);                  // Wait for 1 second
