@@ -37,7 +37,7 @@ export default function PlantDashboard() {
   const colorScheme = useColorScheme() ?? "light";
   const colors = Colors[colorScheme];
 
-  const MOISTURE_THRESHOLD = 100; // Adjust based on sensor calibration
+  const MOISTURE_THRESHOLD = 10; // Adjust based on sensor calibration
   const CHECK_INTERVAL = 3600000; // Check moisture every hour (in ms)
 
   // Add state to track watering progress (0-100%)
@@ -78,7 +78,7 @@ export default function PlantDashboard() {
 
   // Set up MQTT connection
   useEffect(() => {
-    let cleanupFunction: (() => void) | undefined;
+    let messageHandler: (topic: string, message: string) => void;
 
     const setupMQTT = async () => {
       try {
@@ -99,10 +99,11 @@ export default function PlantDashboard() {
         await MQTTService.subscribe(MQTT_TOPICS.WATER_LEVEL); // Add subscription to water level updates
         await MQTTService.subscribe(MQTT_TOPICS.MANUAL_WATERING + "/status"); // Add subscription to status topic
 
-        //Listen for messages
-        MQTTService.onMessage((topic, message) => {
-          console.log(`Received message: ${topic} - ${message}`);
+        // Clear existing listeners first to avoid duplicates
+        MQTTService.clearAllListeners();
 
+        // Define message handler as named function so we can remove it later
+        messageHandler = (topic: string, message: string) => {
           // Handle watering status updates
           if (topic === MQTT_TOPICS.MANUAL_WATERING + "/status") {
             try {
@@ -193,18 +194,15 @@ export default function PlantDashboard() {
               // Update UI with current water level
               setWaterLevel(Math.round(percentage));
 
-              console.log(`Updated water level: ${Math.round(percentage)}%`);
+              console.log(`Current water level: ${Math.round(percentage)}%`);
             } catch (error) {
               console.error("Error parsing water level data:", error);
             }
           }
-        });
-
-        // Store the cleanup function
-        cleanupFunction = () => {
-          MQTTService.disconnect();
-          console.log("Disconnected from MQTT broker");
         };
+
+        // Register message handler
+        MQTTService.onMessage(messageHandler);
       } catch (error) {
         console.error("Error connecting to MQTT broker:", error);
         setMqttConnected(false); // Set connected status to false
@@ -215,26 +213,29 @@ export default function PlantDashboard() {
     // Call the setup function
     setupMQTT();
 
-    // Return the cleanup function for when component unmounts
+    // Return cleanup function
     return () => {
-      // Make sure cleanup is defined before calling it
-      if (cleanupFunction) {
-        cleanupFunction();
+      // If we defined a message handler, remove it
+      if (messageHandler) {
+        MQTTService.offMessage(messageHandler);
       }
     };
   }, []);
 
   // Set up disconnect handler
   useEffect(() => {
-    // Set up disconnect handler to track connection status
-    MQTTService.onDisconnect(() => {
+    // Define disconnect handler as a named function
+    const disconnectHandler = () => {
       console.log("🔴 MQTT disconnected - updating UI state");
       setMqttConnected(false);
-    });
+    };
+
+    // Set up disconnect handler
+    MQTTService.onDisconnect(disconnectHandler);
 
     // Clean up the handler when component unmounts
     return () => {
-      // Remove the disconnect handler
+      MQTTService.offDisconnect(disconnectHandler);
     };
   }, []);
 
@@ -500,7 +501,7 @@ export default function PlantDashboard() {
   const getWaterLevelStatus = () => {
     if (waterLevel >= 70) return { text: "Good", color: colors.tint };
     if (waterLevel >= 30) return { text: "Moderate", color: "#FFC107" };
-    console.log("Changing water level!");
+    // console.log("Changing water level!");
     return { text: "Low - Refill Soon!", color: "#F44336" };
   };
 
@@ -716,7 +717,15 @@ export default function PlantDashboard() {
               style={[
                 styles.waterLevelFill,
                 {
-                  width: `${moistureLevel}%`,
+                  width: `${Math.max(
+                    0,
+                    Math.min(
+                      100,
+                      ((moistureLevel - MOISTURE_THRESHOLD) /
+                        (100 - MOISTURE_THRESHOLD)) *
+                        100
+                    )
+                  )}%`,
                   backgroundColor:
                     moistureLevel < MOISTURE_THRESHOLD
                       ? "#F44336"
@@ -731,9 +740,12 @@ export default function PlantDashboard() {
               { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
             ]}
           >
-            {moistureLevel < MOISTURE_THRESHOLD
+            {moistureLevel < MOISTURE_THRESHOLD + 10
               ? "Dry - Needs Water"
-              : "Well Hydrated"}
+              : moistureLevel < 50
+              ? "Slightly Moist"
+              : "Well Hydrated"}{" "}
+            ({moistureLevel}%)
           </Text>
         </View>
       </View>

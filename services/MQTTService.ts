@@ -161,8 +161,22 @@ class MQTTService {
     this.eventEmitter.on('message', callback);
   }
   
+  offMessage(callback: (topic: string, message: string) => void): void {
+    this.eventEmitter.off('message', callback);
+  }
+  
   onDisconnect(callback: () => void): void {
     this.eventEmitter.on('disconnect', callback);
+  }
+  
+  offDisconnect(callback: () => void): void {
+    this.eventEmitter.off('disconnect', callback);
+  }
+  
+  clearAllListeners(): void {
+    this.eventEmitter.removeAllListeners('message');
+    this.eventEmitter.removeAllListeners('disconnect');
+    console.log("🟢 Cleared all MQTT event listeners");
   }
   
   disconnect(): Promise<void> {
@@ -174,6 +188,9 @@ class MQTTService {
       
       try {
         console.log("🔵 Disconnecting from MQTT broker");
+        
+        // Clean up event listeners when disconnecting
+        this.clearAllListeners();
         
         // Only attempt disconnect if connected
         if (this.isConnected) {
