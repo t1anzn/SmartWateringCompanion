@@ -37,3 +37,4 @@ yarn-error.*
 
 app-example
 Arduino Code/smartWateringCode/arduino_secrets.h
+constants/MQTTConfig.ts 
