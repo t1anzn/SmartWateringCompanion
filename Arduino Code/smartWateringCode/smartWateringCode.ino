@@ -118,7 +118,20 @@ void loop() {
   }
 
    //Serial.println("------");
-   
+
+  Serial.print("Sending data at: ");
+  Serial.println(millis());
+
+  // Send to Firebase
+  String payload = "{";
+  payload += "\"moistureLevel\": " + String(moistureLevel) + ",";
+  payload += "\"waterLevelCM\": " + String(distance);
+  payload += "}";
+
+  fb.setJson("sensorData", payload);
+
+  Serial.print("Done sending at: ");
+  Serial.println(millis());
 
   delay(2000); //Wait 2 seconds before reading again
 }
