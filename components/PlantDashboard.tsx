@@ -40,11 +40,11 @@ export default function PlantDashboard() {
   const MOISTURE_THRESHOLD = 100; // Adjust based on sensor calibration
   const CHECK_INTERVAL = 3600000; // Check moisture every hour (in ms)
 
-  // Add a watering duration parameter (in seconds)
-  const MANUAL_WATERING_DURATION = 10; // 10 seconds of watering
-
   // Add state to track watering progress (0-100%)
   const [wateringProgress, setWateringProgress] = useState(0);
+
+  // Change from const to state variable so users can modify it
+  const [manualWateringDuration, setManualWateringDuration] = useState(10); // Default 10 seconds
 
   // Load plant data on component mount
   useEffect(() => {
@@ -97,13 +97,40 @@ export default function PlantDashboard() {
         await MQTTService.subscribe(MQTT_TOPICS.MANUAL_WATERING);
         await MQTTService.subscribe(MQTT_TOPICS.SOIL_MOISTURE);
         await MQTTService.subscribe(MQTT_TOPICS.WATER_LEVEL); // Add subscription to water level updates
+        await MQTTService.subscribe(MQTT_TOPICS.MANUAL_WATERING + "/status"); // Add subscription to status topic
 
         //Listen for messages
         MQTTService.onMessage((topic, message) => {
           console.log(`Received message: ${topic} - ${message}`);
 
+          // Handle watering status updates
+          if (topic === MQTT_TOPICS.MANUAL_WATERING + "/status") {
+            try {
+              const statusData = JSON.parse(message);
+
+              if (statusData.status === "watering_started") {
+                console.log("Arduino confirmed watering started");
+                // Update UI to show watering in progress
+                setIsWatering(true);
+                // Start progress timer based on the actual duration used by Arduino
+                startWateringProgressTimer(statusData.duration);
+              } else if (statusData.status === "watering_completed") {
+                console.log("Arduino confirmed watering completed");
+                // Update UI to show watering is done
+                setIsWatering(false);
+                setWateringProgress(100);
+
+                // Reset progress to 0 after a short delay
+                setTimeout(() => {
+                  setWateringProgress(0);
+                }, 1000);
+              }
+            } catch (error) {
+              console.error("Error parsing watering status data:", error);
+            }
+          }
           // Handle soil moisture readings
-          if (topic === MQTT_TOPICS.SOIL_MOISTURE) {
+          else if (topic === MQTT_TOPICS.SOIL_MOISTURE) {
             try {
               const moistureData = JSON.parse(message);
               const moistureLevel = moistureData.value;
@@ -334,9 +361,17 @@ export default function PlantDashboard() {
     }
   };
 
+  // Add function to handle duration changes
+  const handleDurationChange = (newDuration: number) => {
+    // Ensure duration is at least 1 second and at most 30 seconds (you can adjust these limits)
+    const validDuration = Math.max(1, Math.min(30, newDuration));
+    setManualWateringDuration(validDuration);
+  };
+
+  // Clean implementation of handleWaterPlant
   const handleWaterPlant = async () => {
     try {
-      // Check if MQTT is connected before attempting to send
+      // Check if MQTT is connected
       if (!mqttConnected) {
         console.log("Cannot water plant - MQTT not connected");
         alert("Cannot water plant. MQTT connection lost. Reconnecting...");
@@ -349,24 +384,7 @@ export default function PlantDashboard() {
         return;
       }
 
-      // Set watering state to true and start progress at 0
-      setIsWatering(true);
-      setWateringProgress(0);
-
-      // Include watering duration in the MQTT message itself
-      const wateringMessage = JSON.stringify({
-        action: "ON",
-        duration: MANUAL_WATERING_DURATION * 1000, // Send duration in milliseconds
-      });
-
-      // Send MQTT message to turn the pump on with duration
-      console.log(
-        `Sending watering command with ${MANUAL_WATERING_DURATION}s duration via MQTT...`
-      );
-      await MQTTService.publish(MQTT_TOPICS.MANUAL_WATERING, wateringMessage);
-      console.log("Watering command sent!");
-
-      // Update timestamp for when watering started
+      // Update timestamp and next watering date
       const now = new Date();
       const formattedNow = formatDateWithTime(now);
       setLastWatered(formattedNow);
@@ -392,50 +410,59 @@ export default function PlantDashboard() {
         console.error("Error updating plant data:", error);
       }
 
-      // Start a progress timer to update the UI during watering
-      const startTime = Date.now();
-      const totalDuration = MANUAL_WATERING_DURATION * 1000; // Convert to milliseconds
+      // Create the message with the duration parameter
+      const wateringMessage = JSON.stringify({
+        action: "ON",
+        duration: manualWateringDuration * 1000, // Convert to milliseconds
+      });
 
-      const progressInterval = setInterval(() => {
-        const elapsedTime = Date.now() - startTime;
-        const progress = Math.min(
-          Math.floor((elapsedTime / totalDuration) * 100),
-          100
-        );
-        setWateringProgress(progress);
-      }, 100); // Update progress every 100ms
+      // Only update UI to show we're trying to connect
+      setWateringProgress(0);
 
-      // Set a timer to update the UI when watering should be complete
-      // We no longer need to send the OFF command - the Arduino handles this based on the duration
-      setTimeout(() => {
-        // Clear the interval first
-        clearInterval(progressInterval);
+      // Send the command to the Arduino
+      console.log(
+        `Sending watering command with ${manualWateringDuration}s duration`
+      );
+      await MQTTService.publish(MQTT_TOPICS.MANUAL_WATERING, wateringMessage);
+      console.log("Watering command sent");
 
-        // Update state to reflect watering is done
-        setIsWatering(false);
-        setWateringProgress(100);
-
-        // Reset progress to 0 after a short delay
-        setTimeout(() => {
-          setWateringProgress(0);
-        }, 1000);
-
-        console.log("Watering UI updated to completed state");
-      }, totalDuration + 500); // Add a small buffer to account for Arduino processing time
+      // The Arduino will send a status message when it starts watering
+      // We'll update the UI when we get that confirmation
     } catch (error) {
       console.error("Error sending watering command:", error);
 
-      // Show a more specific error message
       if (!mqttConnected) {
-        alert("MQTT connection lost. Trying to reconnect... ");
+        alert("MQTT connection lost. Trying to reconnect...");
       } else {
         alert("Failed to water plant. Please check your connection.");
       }
-
-      // Reset state if there was an error
-      setIsWatering(false);
-      setWateringProgress(0);
     }
+  };
+
+  // Helper function to update watering progress UI
+  const startWateringProgressTimer = (durationInMs: number) => {
+    const startTime = Date.now();
+
+    // Clear any existing interval
+    if (window.progressInterval) {
+      clearInterval(window.progressInterval);
+    }
+
+    // Set up a new interval
+    window.progressInterval = setInterval(() => {
+      const elapsedTime = Date.now() - startTime;
+      const progress = Math.min(
+        Math.floor((elapsedTime / durationInMs) * 100),
+        100
+      );
+
+      setWateringProgress(progress);
+
+      // Clear interval when we reach 100%
+      if (progress >= 100) {
+        clearInterval(window.progressInterval);
+      }
+    }, 100);
   };
 
   const toggleAutoWatering = () => {
@@ -746,6 +773,71 @@ export default function PlantDashboard() {
         </Text>
       </TouchableOpacity>
 
+      {/* Watering Duration Control */}
+      {!autoWateringEnabled && (
+        <View style={styles.durationContainer}>
+          <Text
+            style={[
+              styles.durationLabel,
+              { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
+            ]}
+          >
+            Watering Duration: {manualWateringDuration} seconds
+          </Text>
+
+          <View style={styles.durationInputRow}>
+            <TouchableOpacity
+              style={[
+                styles.durationButton,
+                {
+                  backgroundColor:
+                    colorScheme === "dark" ? "#2C2C2C" : "#F5F5F5",
+                },
+              ]}
+              onPress={() => handleDurationChange(manualWateringDuration - 1)}
+              disabled={manualWateringDuration <= 1 || isWatering}
+            >
+              <Text style={{ color: colors.text }}>-</Text>
+            </TouchableOpacity>
+
+            <TextInput
+              style={[
+                styles.durationInput,
+                {
+                  backgroundColor:
+                    colorScheme === "dark" ? "#2C2C2C" : "#F5F5F5",
+                  color: colors.text,
+                  borderColor: colorScheme === "dark" ? "#444" : "#E0E0E0",
+                },
+              ]}
+              value={manualWateringDuration.toString()}
+              onChangeText={(text) => {
+                const duration = parseInt(text);
+                if (!isNaN(duration)) {
+                  handleDurationChange(duration);
+                }
+              }}
+              keyboardType="numeric"
+              editable={!isWatering}
+            />
+
+            <TouchableOpacity
+              style={[
+                styles.durationButton,
+                {
+                  backgroundColor:
+                    colorScheme === "dark" ? "#2C2C2C" : "#F5F5F5",
+                },
+              ]}
+              onPress={() => handleDurationChange(manualWateringDuration + 1)}
+              disabled={manualWateringDuration >= 30 || isWatering}
+            >
+              <Text style={{ color: colors.text }}>+</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      )}
+
       {autoWateringEnabled && (
         <Text
           style={[
@@ -773,7 +865,7 @@ export default function PlantDashboard() {
               { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
             ]}
           >
-            Watering in progress for {MANUAL_WATERING_DURATION} seconds
+            Watering in progress for {manualWateringDuration} seconds
           </Text>
         </View>
       )}
@@ -788,7 +880,7 @@ const styles = StyleSheet.create({
     marginVertical: 8,
     shadowColor: "#000",
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
+    shadowOpacity: 1,
     shadowRadius: 4,
     elevation: 2,
   },
@@ -910,4 +1002,42 @@ const styles = StyleSheet.create({
     textAlign: "center",
     fontStyle: "italic",
   },
+  durationContainer: {
+    marginTop: 12,
+    marginBottom: 8,
+  },
+  durationLabel: {
+    fontSize: 14,
+    textAlign: "center",
+    marginBottom: 8,
+  },
+  durationInputRow: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  durationInput: {
+    fontSize: 16,
+    width: 50,
+    height: 40,
+    paddingHorizontal: 12,
+    borderRadius: 4,
+    borderWidth: 1,
+    textAlign: "center",
+    marginHorizontal: 8,
+  },
+  durationButton: {
+    width: 40,
+    height: 40,
+    justifyContent: "center",
+    alignItems: "center",
+    borderRadius: 4,
+  },
 });
+
+// Add this to the global Window interface
+declare global {
+  interface Window {
+    progressInterval: NodeJS.Timeout | undefined;
+  }
+}

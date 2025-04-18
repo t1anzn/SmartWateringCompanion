@@ -23,6 +23,7 @@ const char* manualWateringTopic = "plantSystem/manualWatering";
 const char* autoWateringTopic = "plantSystem/autoWatering";
 const char* soilMoistureTopic = "plantSystem/soilMoisture"; 
 const char* waterLevelTopic = "plantSystem/waterLevel";
+const char* manualWateringStatusTopic = "plantSystem/manualWatering/status";
 
 int status = WL_IDLE_STATUS;     // the WiFi radio's status
 
@@ -42,6 +43,14 @@ const int MOISTURE_THRESHOLD = 100; // Match the threshold used in the app
 
 unsigned long wateringEndTime = 0;
 bool wateringTimerActive = false;
+unsigned long lastLoopExecutionTime = 0; // Add tracking variable for loop execution timing
+unsigned long wateringStartTime = 0; // Add actual start time tracking
+
+// Add these variables to handle non-blocking operations
+unsigned long lastSensorReadTime = 0;
+unsigned long lastFirebaseSendTime = 0;
+unsigned long lastMqttSendTime = 0;
+unsigned long lastWateringCheckTime = 0;
 
 // Connecting to MQTT Broker - Loop until connected
 void reconnect() {
@@ -101,15 +110,27 @@ void handleIncomingMessage(int messageSize) {
       }
       
       if(action == "ON") {
-        manualOverride = true;
-        digitalWrite(ledPin, HIGH); // Turn on pump
-        Serial.print("Manual Watering: ON for ");
+        // SIMPLEST APPROACH: Just turn on, wait, turn off
+        Serial.print("Manual Watering: ON for exactly ");
         Serial.print(duration);
         Serial.println(" milliseconds");
         
-        // Set watering end time for automatic shutoff
-        wateringEndTime = millis() + duration;
-        wateringTimerActive = true;
+        // Turn on pump
+        digitalWrite(ledPin, HIGH);
+        
+        // Wait for the exact duration - THIS BLOCKS ALL OTHER OPERATIONS
+        delay(duration);
+        
+        // Turn off pump
+        digitalWrite(ledPin, LOW);
+        
+        Serial.println("Watering completed");
+        
+        // Send completion message
+        String completedPayload = "{\"status\":\"watering_completed\"}";
+        mqttClient.beginMessage(manualWateringStatusTopic);
+        mqttClient.print(completedPayload);
+        mqttClient.endMessage();
       }
     }
     // Handle legacy ON/OFF messages for backward compatibility
@@ -190,88 +211,84 @@ void setup() {
 }
 
 void loop() {
-  // Check if we're connected to MQTT, if not, try to reconnect
+  // Focus only on timing - do this first
+  if (wateringTimerActive) {
+    unsigned long now = millis();
+    if (now >= wateringEndTime) {
+      // Time's up - stop watering immediately
+      digitalWrite(ledPin, LOW);
+      manualOverride = false;
+      wateringTimerActive = false;
+      
+      unsigned long actualDuration = now - wateringStartTime;
+      Serial.print("Watering ENDED after exactly ");
+      Serial.print(actualDuration);
+      Serial.println(" ms");
+    }
+  }
+  
+  // Do MQTT polling next
+  mqttClient.poll();
+  
+  // Handle reconnection if needed
   if (!mqttClient.connected()) {
-    Serial.println("MQTT connection lost, attempting to reconnect...");
-    reconnect();
-  }
-  
-  mqttClient.poll(); // This checks for new messages from the broker
-
-  // Check if watering timer is active and needs to be turned off
-  if (wateringTimerActive && millis() >= wateringEndTime) {
-    manualOverride = false;
-    digitalWrite(ledPin, LOW); // Turn off pump
-    wateringTimerActive = false;
-    Serial.println("Watering timer completed, pump turned OFF");
+    static unsigned long lastReconnectAttempt = 0;
+    unsigned long now = millis();
+    
+    // Only try reconnecting every 5 seconds
+    if (now - lastReconnectAttempt > 5000) {
+      lastReconnectAttempt = now;
+      Serial.println("MQTT disconnected, attempting to reconnect");
+      reconnect();
+    }
   }
 
-  // ----- Ultrasonic Sensor Logic (Water Level Measurement)
-
-  // Clear trigPin
-  digitalWrite(trigPin, LOW);
-  delayMicroseconds(2);
-
-  // Send ultrasonic pulse
-  digitalWrite(trigPin, HIGH);
-  delayMicroseconds(10); // Sensor needs t his timing to trigger a proper sound pulse
-  digitalWrite(trigPin, LOW);
-
-  // Measure the echo duration
-  duration = pulseIn(echoPin, HIGH);
-
-  // Calculate the distance in cm
-  // 0.034 = speed of sound in cm per microsecond at room temperature
-  // Divided by 2 because the duration measured is for the round-trip, so half would be the one-way distance
-  // distance = time * speed
-  distance = duration * 0.034 / 2;
-
-   //Serial.print("Water Level Distance: ");
-   //Serial.print(distance);
-   //Serial.println(" cm");
-
+  // Handle sensors and data at lower priority
+  static unsigned long lastSensorUpdate = 0;
+  unsigned long now = millis();
   
-  // ----- Soil moisture sensor logic
+  if (now - lastSensorUpdate >= 2000) {
+    lastSensorUpdate = now;
+    
+    // Read sensors
+    digitalWrite(trigPin, LOW);
+    delayMicroseconds(2);
+    digitalWrite(trigPin, HIGH);
+    delayMicroseconds(10);
+    digitalWrite(trigPin, LOW);
+    duration = pulseIn(echoPin, HIGH);
+    
+    // Calculate the distance in cm
+    distance = duration * 0.034 / 2;
+    
+    // Read soil moisture
+    moistureLevel = analogRead(moistureSensorPin);
+    
+    // Maintain pump state
+    if (!manualOverride) {
+      digitalWrite(ledPin, LOW);
+    }
+    
+    // Send data to MQTT and Firebase
+    String soilMoisturePayload = "{\"value\": " + String(moistureLevel) + "}";
+    mqttClient.beginMessage(soilMoistureTopic);
+    mqttClient.print(soilMoisturePayload);
+    mqttClient.endMessage();
 
-  // Read soil moisture sensor
-  moistureLevel = analogRead(moistureSensorPin); // Read the sensor value
-   //Serial.print("Soil Moisture Level: ");
-   //Serial.println(moistureLevel); // Print the moisture level to the Serial Monitor
-  
-  // Only apply manual override if it's active
-  if (!manualOverride) {
-    // Don't automatically water based on moisture
-    // Just keep the pump off unless we get a command
-    digitalWrite(ledPin, LOW); // Turn off LED (pump)
+    // Send water level data to MQTT
+    String waterLevelPayload = "{\"value\": " + String(distance) + "}";
+    mqttClient.beginMessage(waterLevelTopic);
+    mqttClient.print(waterLevelPayload);
+    mqttClient.endMessage();
+    
+    String payload = "{";
+    payload += "\"moistureLevel\": " + String(moistureLevel) + ",";
+    payload += "\"waterLevelCM\": " + String(distance);
+    payload += "}";
+    
+    fb.setJson("sensorData", payload);
   }
-
-   //Serial.println("------");
-
-  Serial.print("Sending data at: ");
-  Serial.println(millis());
-
-  // Send to Firebase
-  String payload = "{";
-  payload += "\"moistureLevel\": " + String(moistureLevel) + ",";
-  payload += "\"waterLevelCM\": " + String(distance);
-  payload += "}";
-
-  fb.setJson("sensorData", payload);
   
-  // Send soil moisture data to MQTT
-  String soilMoisturePayload = "{\"value\": " + String(moistureLevel) + "}";
-  mqttClient.beginMessage(soilMoistureTopic);
-  mqttClient.print(soilMoisturePayload);
-  mqttClient.endMessage();
-
-  // Send water level data to MQTT
-  String waterLevelPayload = "{\"value\": " + String(distance) + "}";
-  mqttClient.beginMessage(waterLevelTopic);
-  mqttClient.print(waterLevelPayload);
-  mqttClient.endMessage();
-
-  Serial.print("Done sending at: ");
-  Serial.println(millis());
-
-  delay(2000); //Wait 2 seconds before reading again
+  // Keep system responsive
+  delay(10);
 }
