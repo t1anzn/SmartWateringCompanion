@@ -62,7 +62,7 @@ export default function PlantHistoryChart({
   // Add state for how many data points to show
   const [maxDataPoints, setMaxDataPoints] = useState(8);
 
-  // Simplified tooltip state - just track one active tooltip at a time
+  // Simplify tooltip state to not include position
   const [activeTooltip, setActiveTooltip] = useState<{
     value: number;
     timestamp: number;
@@ -280,7 +280,7 @@ export default function PlantHistoryChart({
     };
   }
 
-  // Simplified tooltip render function
+  // Simplified tooltip render function with fixed positioning
   const renderTooltip = () => {
     if (!activeTooltip) return null;
 
@@ -293,22 +293,20 @@ export default function PlantHistoryChart({
     });
 
     return (
-      <View style={styles.tooltipOverlay}>
-        <View
-          style={[
-            styles.tooltip,
-            { backgroundColor: colorScheme === "dark" ? "#333" : "#fff" },
-          ]}
-        >
-          <Text style={[styles.tooltipTitle, { color: colors.text }]}>
-            {formattedDate}
-          </Text>
-          <Text style={[styles.tooltipValue, { color: colors.text }]}>
-            {type === "moisture"
-              ? `Moisture: ${value}`
-              : `Water Level: ${value}%`}
-          </Text>
-        </View>
+      <View
+        style={[
+          styles.fixedTooltip,
+          { backgroundColor: colorScheme === "dark" ? "#333" : "#fff" },
+        ]}
+      >
+        <Text style={[styles.tooltipTitle, { color: colors.text }]}>
+          {formattedDate}
+        </Text>
+        <Text style={[styles.tooltipValue, { color: colors.text }]}>
+          {type === "moisture"
+            ? `Moisture: ${value}`
+            : `Water Level: ${value}%`}
+        </Text>
       </View>
     );
   };
@@ -363,7 +361,7 @@ export default function PlantHistoryChart({
   }
 
   return (
-    <>
+    <View style={styles.container}>
       <View style={styles.headerContainer}>
         <Text style={[styles.subsectionTitle, { color: colors.text }]}>
           Moisture Level History
@@ -407,6 +405,8 @@ export default function PlantHistoryChart({
       ) : null}
 
       <View style={styles.chartContainer}>
+        {activeTooltip && activeTooltip.type === "moisture" && renderTooltip()}
+
         <ScrollView horizontal showsHorizontalScrollIndicator={true}>
           <LineChart
             data={{
@@ -427,6 +427,7 @@ export default function PlantHistoryChart({
               const timestamp = processedEntries[index]?.timestamp;
               if (!timestamp) return;
 
+              // Simplified tooltip data
               setActiveTooltip({
                 value,
                 timestamp,
@@ -437,7 +438,7 @@ export default function PlantHistoryChart({
               // Auto-hide tooltip after 3 seconds
               setTimeout(() => {
                 setActiveTooltip(null);
-              }, 3000);
+              }, 10000);
             }}
             decorator={() => null} // Remove decorator here since we're handling it separately
             chartConfig={{
@@ -489,6 +490,8 @@ export default function PlantHistoryChart({
       </Text>
 
       <View style={styles.chartContainer}>
+        {activeTooltip && activeTooltip.type === "water" && renderTooltip()}
+
         <ScrollView horizontal showsHorizontalScrollIndicator={true}>
           <LineChart
             data={{
@@ -509,6 +512,7 @@ export default function PlantHistoryChart({
               const timestamp = processedEntries[index]?.timestamp;
               if (!timestamp) return;
 
+              // Simplified tooltip data
               setActiveTooltip({
                 value,
                 timestamp,
@@ -563,15 +567,13 @@ export default function PlantHistoryChart({
           </Text>
         )}
       </View>
-
-      {/* Render tooltip as the last element so it appears on top */}
-      {renderTooltip()}
-    </>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
   container: {
+    position: "relative", // Make container relative for absolute positioning of tooltip
     marginTop: 20,
     marginBottom: 10,
     padding: 16,
@@ -667,7 +669,7 @@ const styles = StyleSheet.create({
     shadowOpacity: 0.25,
     shadowRadius: 3.84,
     elevation: 5,
-    minWidth: 180,
+    minWidth: 150,
     alignItems: "center",
   },
   tooltipTitle: {
@@ -707,14 +709,17 @@ const styles = StyleSheet.create({
     marginTop: 8,
     fontStyle: "italic",
   },
-  tooltipOverlay: {
-    position: "absolute",
-    top: 50, // Position from top of the parent component
-    left: 0,
-    right: 0,
+  fixedTooltip: {
+    padding: 10,
+    borderRadius: 8,
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.25,
+    shadowRadius: 3.84,
+    elevation: 5,
+    marginBottom: 10,
+    alignSelf: "center",
+    minWidth: 180,
     alignItems: "center",
-    justifyContent: "center",
-    zIndex: 1000, // Ensure it's above everything else
-    pointerEvents: "none", // Allow touches to pass through to components below
   },
 });
