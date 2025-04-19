@@ -21,6 +21,7 @@ interface Plant {
   wateringFrequency: number;
   lastWatered: string;
   nextWatering: string;
+  photoUri?: string; // Add optional photo URI
 }
 
 export default function PlantDashboard() {
@@ -531,11 +532,20 @@ export default function PlantDashboard() {
       ]}
     >
       <View style={styles.plantHeader}>
-        <Image
-          source={require("@/assets/images/leaf-logo.png")}
-          style={styles.plantImage}
-          resizeMode="contain"
-        />
+        {/* Conditional rendering based on whether the plant has a photo */}
+        {plant.photoUri ? (
+          <Image
+            source={{ uri: plant.photoUri }}
+            style={styles.plantImage}
+            resizeMode="cover"
+          />
+        ) : (
+          <Image
+            source={require("@/assets/images/leaf-logo.png")}
+            style={styles.plantImage}
+            resizeMode="contain"
+          />
+        )}
         <View>
           <Text style={[styles.title, { color: colors.text }]}>
             {plant.name}
@@ -905,6 +915,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     marginRight: 16,
+    borderRadius: 25, // Make the image circular
   },
   title: {
     fontSize: 22,

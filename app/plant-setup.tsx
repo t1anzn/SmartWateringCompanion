@@ -12,11 +12,13 @@ import { useRouter } from "expo-router";
 import { Colors } from "@/constants/Colors";
 import { useColorScheme } from "@/hooks/useColorScheme";
 import AsyncStorage from "@react-native-async-storage/async-storage";
+import PlantImagePicker from "@/components/PlantImagePicker";
 
 export default function PlantSetupScreen() {
   const [plantName, setPlantName] = useState("");
   const [plantType, setPlantType] = useState("Succulent");
   const [wateringFrequency, setWateringFrequency] = useState("7");
+  const [photoUri, setPhotoUri] = useState<string | undefined>(undefined);
   const router = useRouter();
   const colorScheme = useColorScheme() ?? "light";
   const colors = Colors[colorScheme];
@@ -47,6 +49,7 @@ export default function PlantSetupScreen() {
               new Date().getDate() + parseInt(wateringFrequency)
             )
           ).toISOString(),
+          photoUri: photoUri, // Include the photo URI in the plant object
         };
 
         // Save plant to storage
@@ -87,6 +90,12 @@ export default function PlantSetupScreen() {
       >
         Let's set up your first plant for monitoring
       </Text>
+
+      {/* Add the PlantImagePicker component here */}
+      <PlantImagePicker
+        photoUri={photoUri}
+        onImageSelected={(uri) => setPhotoUri(uri)}
+      />
 
       <View style={styles.formGroup}>
         <Text
