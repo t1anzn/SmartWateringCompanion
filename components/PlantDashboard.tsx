@@ -6,6 +6,7 @@ import {
   Image,
   Switch,
   TextInput,
+  ScrollView,
 } from "react-native";
 import React, { useState, useEffect } from "react";
 import { Colors } from "@/constants/Colors";
@@ -525,377 +526,393 @@ export default function PlantDashboard() {
   }
 
   return (
-    <View
-      style={[
-        styles.container,
-        { backgroundColor: colorScheme === "dark" ? "#1E1E1E" : "#FFFFFF" },
-      ]}
+    <ScrollView
+      style={styles.scrollContainer}
+      contentContainerStyle={styles.scrollContentContainer}
     >
-      <View style={styles.plantHeader}>
-        {/* Conditional rendering based on whether the plant has a photo */}
-        {plant.photoUri ? (
-          <Image
-            source={{ uri: plant.photoUri }}
-            style={styles.plantImage}
-            resizeMode="cover"
-          />
-        ) : (
-          <Image
-            source={require("@/assets/images/leaf-logo.png")}
-            style={styles.plantImage}
-            resizeMode="contain"
-          />
-        )}
-        <View>
-          <Text style={[styles.title, { color: colors.text }]}>
-            {plant.name}
-          </Text>
-          <Text
-            style={[
-              styles.plantType,
-              { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
-            ]}
-          >
-            {plant.type}
-          </Text>
-        </View>
-      </View>
-
-      <View style={styles.divider} />
-
-      {/* Water Level Indicator */}
-      <View style={styles.infoContainer}>
-        <View style={styles.infoItem}>
-          <View style={styles.infoHeader}>
+      <View
+        style={[
+          styles.container,
+          { backgroundColor: colorScheme === "dark" ? "#1E1E1E" : "#FFFFFF" },
+        ]}
+      >
+        <View style={styles.plantHeader}>
+          {/* Conditional rendering based on whether the plant has a photo */}
+          {plant.photoUri ? (
+            <Image
+              source={{ uri: plant.photoUri }}
+              style={styles.plantImage}
+              resizeMode="cover"
+            />
+          ) : (
+            <Image
+              source={require("@/assets/images/leaf-logo.png")}
+              style={styles.plantImage}
+              resizeMode="contain"
+            />
+          )}
+          <View>
+            <Text style={[styles.title, { color: colors.text }]}>
+              {plant.name}
+            </Text>
             <Text
               style={[
-                styles.infoLabel,
+                styles.plantType,
                 { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
               ]}
             >
-              Water Reservoir
-            </Text>
-            <Text style={[styles.infoValue, { color: waterLevelStatus.color }]}>
-              {waterLevelStatus.text}
+              {plant.type}
             </Text>
           </View>
-          <View style={styles.waterLevelBar}>
-            <View
-              style={[
-                styles.waterLevelFill,
-                {
-                  width: `${waterLevel}%`,
-                  backgroundColor: waterLevelStatus.color,
-                },
-              ]}
-            />
-          </View>
-          <Text
-            style={[
-              styles.waterLevelText,
-              { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
-            ]}
-          >
-            {waterLevel}% full
-          </Text>
         </View>
 
-        {/* Auto Watering Toggle */}
-        <View style={styles.infoItem}>
-          <View style={styles.autoWateringRow}>
-            <View>
+        <View style={styles.divider} />
+
+        {/* Water Level Indicator */}
+        <View style={styles.infoContainer}>
+          <View style={styles.infoItem}>
+            <View style={styles.infoHeader}>
               <Text
                 style={[
                   styles.infoLabel,
                   { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
                 ]}
               >
-                Automatic Watering
+                Water Reservoir
               </Text>
               <Text
-                style={[
-                  styles.scheduleText,
-                  { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
-                ]}
+                style={[styles.infoValue, { color: waterLevelStatus.color }]}
               >
-                Next scheduled:{" "}
-                {autoWateringEnabled ? nextScheduledWatering : "Disabled"}
+                {waterLevelStatus.text}
               </Text>
             </View>
-            <Switch
-              value={autoWateringEnabled}
-              onValueChange={toggleAutoWatering}
-              trackColor={{
-                false: "#767577",
-                true: colorScheme === "dark" ? "#fff" : "#C8E6C9",
-              }}
-              thumbColor={autoWateringEnabled ? colors.tint : "#f4f3f4"}
-            />
-          </View>
-        </View>
-
-        <View style={styles.infoItem}>
-          <Text
-            style={[
-              styles.infoLabel,
-              { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
-            ]}
-          >
-            Watering Frequency
-          </Text>
-
-          <View style={styles.frequencyInputContainer}>
-            <TextInput
-              style={[
-                styles.frequencyInput,
-                {
-                  backgroundColor:
-                    colorScheme === "dark" ? "#2C2C2C" : "#F5F5F5",
-                  color: colors.text,
-                  borderColor: colorScheme === "dark" ? "#444" : "#E0E0E0",
-                },
-              ]}
-              value={
-                wateringFrequency === 0 ? "" : wateringFrequency.toString()
-              }
-              onChangeText={(text) => {
-                if (text === "") {
-                  setWateringFrequency(0);
-                  return;
-                }
-
-                // Parse the input as a number
-                const frequency = parseInt(text);
-                // Only update if it's a valid positive number
-                if (!isNaN(frequency) && frequency > 0) {
-                  updateWateringFrequency(frequency);
-                }
-              }}
-              onBlur={() => {
-                // If a valid frequency is set, ensure next watering date is updated
-                if (wateringFrequency > 0) {
-                  updateWateringFrequency(wateringFrequency);
-                }
-              }}
-              keyboardType="numeric"
-              placeholder="Days"
-              placeholderTextColor={
-                colorScheme === "dark" ? "#9BA1A6" : "#BDBDBD"
-              }
-              editable={autoWateringEnabled}
-            />
+            <View style={styles.waterLevelBar}>
+              <View
+                style={[
+                  styles.waterLevelFill,
+                  {
+                    width: `${waterLevel}%`,
+                    backgroundColor: waterLevelStatus.color,
+                  },
+                ]}
+              />
+            </View>
             <Text
               style={[
-                styles.frequencyUnit,
+                styles.waterLevelText,
                 { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
               ]}
             >
-              {wateringFrequency > 0
-                ? `day${wateringFrequency !== 1 ? "s" : ""} between watering`
-                : ""}
+              {waterLevel}% full
+            </Text>
+          </View>
+
+          {/* Auto Watering Toggle */}
+          <View style={styles.infoItem}>
+            <View style={styles.autoWateringRow}>
+              <View>
+                <Text
+                  style={[
+                    styles.infoLabel,
+                    { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
+                  ]}
+                >
+                  Automatic Watering
+                </Text>
+                <Text
+                  style={[
+                    styles.scheduleText,
+                    { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
+                  ]}
+                >
+                  Next scheduled:{" "}
+                  {autoWateringEnabled ? nextScheduledWatering : "Disabled"}
+                </Text>
+              </View>
+              <Switch
+                value={autoWateringEnabled}
+                onValueChange={toggleAutoWatering}
+                trackColor={{
+                  false: "#767577",
+                  true: colorScheme === "dark" ? "#fff" : "#C8E6C9",
+                }}
+                thumbColor={autoWateringEnabled ? colors.tint : "#f4f3f4"}
+              />
+            </View>
+          </View>
+
+          <View style={styles.infoItem}>
+            <Text
+              style={[
+                styles.infoLabel,
+                { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
+              ]}
+            >
+              Watering Frequency
+            </Text>
+
+            <View style={styles.frequencyInputContainer}>
+              <TextInput
+                style={[
+                  styles.frequencyInput,
+                  {
+                    backgroundColor:
+                      colorScheme === "dark" ? "#2C2C2C" : "#F5F5F5",
+                    color: colors.text,
+                    borderColor: colorScheme === "dark" ? "#444" : "#E0E0E0",
+                  },
+                ]}
+                value={
+                  wateringFrequency === 0 ? "" : wateringFrequency.toString()
+                }
+                onChangeText={(text) => {
+                  if (text === "") {
+                    setWateringFrequency(0);
+                    return;
+                  }
+
+                  // Parse the input as a number
+                  const frequency = parseInt(text);
+                  // Only update if it's a valid positive number
+                  if (!isNaN(frequency) && frequency > 0) {
+                    updateWateringFrequency(frequency);
+                  }
+                }}
+                onBlur={() => {
+                  // If a valid frequency is set, ensure next watering date is updated
+                  if (wateringFrequency > 0) {
+                    updateWateringFrequency(wateringFrequency);
+                  }
+                }}
+                keyboardType="numeric"
+                placeholder="Days"
+                placeholderTextColor={
+                  colorScheme === "dark" ? "#9BA1A6" : "#BDBDBD"
+                }
+                editable={autoWateringEnabled}
+              />
+              <Text
+                style={[
+                  styles.frequencyUnit,
+                  { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
+                ]}
+              >
+                {wateringFrequency > 0
+                  ? `day${wateringFrequency !== 1 ? "s" : ""} between watering`
+                  : ""}
+              </Text>
+            </View>
+          </View>
+
+          {/* Last Watered */}
+          <View style={styles.infoItem}>
+            <Text
+              style={[
+                styles.infoLabel,
+                { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
+              ]}
+            >
+              Last Watered
+            </Text>
+
+            <Text style={[styles.infoValue, { color: colors.text }]}>
+              {lastWatered}
+            </Text>
+          </View>
+
+          <View style={styles.infoItem}>
+            <Text
+              style={[
+                styles.infoLabel,
+                { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
+              ]}
+            >
+              Soil Moisture
+            </Text>
+            <View style={styles.waterLevelBar}>
+              <View
+                style={[
+                  styles.waterLevelFill,
+                  {
+                    width: `${Math.max(
+                      0,
+                      Math.min(
+                        100,
+                        ((moistureLevel - MOISTURE_THRESHOLD) /
+                          (100 - MOISTURE_THRESHOLD)) *
+                          100
+                      )
+                    )}%`,
+                    backgroundColor:
+                      moistureLevel < MOISTURE_THRESHOLD
+                        ? "#F44336"
+                        : colors.tint,
+                  },
+                ]}
+              />
+            </View>
+            <Text
+              style={[
+                styles.waterLevelText,
+                { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
+              ]}
+            >
+              {moistureLevel < MOISTURE_THRESHOLD + 10
+                ? "Dry - Needs Water"
+                : moistureLevel < 50
+                ? "Slightly Moist"
+                : "Well Hydrated"}{" "}
+              ({moistureLevel}%)
             </Text>
           </View>
         </View>
 
-        {/* Last Watered */}
-        <View style={styles.infoItem}>
-          <Text
-            style={[
-              styles.infoLabel,
-              { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
-            ]}
-          >
-            Last Watered
-          </Text>
-
-          <Text style={[styles.infoValue, { color: colors.text }]}>
-            {lastWatered}
-          </Text>
-        </View>
-
-        <View style={styles.infoItem}>
-          <Text
-            style={[
-              styles.infoLabel,
-              { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
-            ]}
-          >
-            Soil Moisture
-          </Text>
-          <View style={styles.waterLevelBar}>
-            <View
-              style={[
-                styles.waterLevelFill,
-                {
-                  width: `${Math.max(
-                    0,
-                    Math.min(
-                      100,
-                      ((moistureLevel - MOISTURE_THRESHOLD) /
-                        (100 - MOISTURE_THRESHOLD)) *
-                        100
-                    )
-                  )}%`,
-                  backgroundColor:
-                    moistureLevel < MOISTURE_THRESHOLD
-                      ? "#F44336"
-                      : colors.tint,
-                },
-              ]}
-            />
-          </View>
-          <Text
-            style={[
-              styles.waterLevelText,
-              { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
-            ]}
-          >
-            {moistureLevel < MOISTURE_THRESHOLD + 10
-              ? "Dry - Needs Water"
-              : moistureLevel < 50
-              ? "Slightly Moist"
-              : "Well Hydrated"}{" "}
-            ({moistureLevel}%)
-          </Text>
-        </View>
-      </View>
-
-      {/* Manual Watering Button */}
-      <TouchableOpacity
-        style={[
-          styles.button,
-          {
-            backgroundColor: autoWateringEnabled
-              ? colorScheme === "dark"
-                ? "#555"
-                : "#E0E0E0"
-              : isWatering
-              ? "#F44336" // Red when watering
-              : colors.tint,
-            opacity: autoWateringEnabled || isWatering ? 0.7 : 1,
-          },
-        ]}
-        onPress={handleWaterPlant}
-        disabled={autoWateringEnabled || isWatering}
-      >
-        <Text
+        {/* Manual Watering Button */}
+        <TouchableOpacity
           style={[
-            styles.buttonText,
+            styles.button,
             {
-              color:
-                autoWateringEnabled || isWatering
-                  ? colorScheme === "dark"
-                    ? "#AAA"
-                    : "#757575"
-                  : "white",
+              backgroundColor: autoWateringEnabled
+                ? colorScheme === "dark"
+                  ? "#555"
+                  : "#E0E0E0"
+                : isWatering
+                ? "#F44336" // Red when watering
+                : colors.tint,
+              opacity: autoWateringEnabled || isWatering ? 0.7 : 1,
             },
           ]}
+          onPress={handleWaterPlant}
+          disabled={autoWateringEnabled || isWatering}
         >
-          {isWatering ? `Watering... (${wateringProgress}%)` : "Water Now"}
-        </Text>
-      </TouchableOpacity>
-
-      {/* Watering Duration Control */}
-      {!autoWateringEnabled && (
-        <View style={styles.durationContainer}>
           <Text
             style={[
-              styles.durationLabel,
+              styles.buttonText,
+              {
+                color:
+                  autoWateringEnabled || isWatering
+                    ? colorScheme === "dark"
+                      ? "#AAA"
+                      : "#757575"
+                    : "white",
+              },
+            ]}
+          >
+            {isWatering ? `Watering... (${wateringProgress}%)` : "Water Now"}
+          </Text>
+        </TouchableOpacity>
+
+        {/* Watering Duration Control */}
+        {!autoWateringEnabled && (
+          <View style={styles.durationContainer}>
+            <Text
+              style={[
+                styles.durationLabel,
+                { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
+              ]}
+            >
+              Watering Duration: {manualWateringDuration} seconds
+            </Text>
+
+            <View style={styles.durationInputRow}>
+              <TouchableOpacity
+                style={[
+                  styles.durationButton,
+                  {
+                    backgroundColor:
+                      colorScheme === "dark" ? "#2C2C2C" : "#F5F5F5",
+                  },
+                ]}
+                onPress={() => handleDurationChange(manualWateringDuration - 1)}
+                disabled={manualWateringDuration <= 1 || isWatering}
+              >
+                <Text style={{ color: colors.text }}>-</Text>
+              </TouchableOpacity>
+
+              <TextInput
+                style={[
+                  styles.durationInput,
+                  {
+                    backgroundColor:
+                      colorScheme === "dark" ? "#2C2C2C" : "#F5F5F5",
+                    color: colors.text,
+                    borderColor: colorScheme === "dark" ? "#444" : "#E0E0E0",
+                  },
+                ]}
+                value={manualWateringDuration.toString()}
+                onChangeText={(text) => {
+                  const duration = parseInt(text);
+                  if (!isNaN(duration)) {
+                    handleDurationChange(duration);
+                  }
+                }}
+                keyboardType="numeric"
+                editable={!isWatering}
+              />
+
+              <TouchableOpacity
+                style={[
+                  styles.durationButton,
+                  {
+                    backgroundColor:
+                      colorScheme === "dark" ? "#2C2C2C" : "#F5F5F5",
+                  },
+                ]}
+                onPress={() => handleDurationChange(manualWateringDuration + 1)}
+                disabled={manualWateringDuration >= 30 || isWatering}
+              >
+                <Text style={{ color: colors.text }}>+</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {autoWateringEnabled && (
+          <Text
+            style={[
+              styles.autoWateringNote,
               { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
             ]}
           >
-            Watering Duration: {manualWateringDuration} seconds
+            Auto-watering is enabled. Turn it off to water manually.
           </Text>
+        )}
 
-          <View style={styles.durationInputRow}>
-            <TouchableOpacity
+        {isWatering && (
+          <View style={styles.progressContainer}>
+            <View style={styles.progressBar}>
+              <View
+                style={[
+                  styles.progressFill,
+                  {
+                    width: `${wateringProgress}%`,
+                    backgroundColor: colors.tint,
+                  },
+                ]}
+              />
+            </View>
+            <Text
               style={[
-                styles.durationButton,
-                {
-                  backgroundColor:
-                    colorScheme === "dark" ? "#2C2C2C" : "#F5F5F5",
-                },
+                styles.wateringNote,
+                { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
               ]}
-              onPress={() => handleDurationChange(manualWateringDuration - 1)}
-              disabled={manualWateringDuration <= 1 || isWatering}
             >
-              <Text style={{ color: colors.text }}>-</Text>
-            </TouchableOpacity>
-
-            <TextInput
-              style={[
-                styles.durationInput,
-                {
-                  backgroundColor:
-                    colorScheme === "dark" ? "#2C2C2C" : "#F5F5F5",
-                  color: colors.text,
-                  borderColor: colorScheme === "dark" ? "#444" : "#E0E0E0",
-                },
-              ]}
-              value={manualWateringDuration.toString()}
-              onChangeText={(text) => {
-                const duration = parseInt(text);
-                if (!isNaN(duration)) {
-                  handleDurationChange(duration);
-                }
-              }}
-              keyboardType="numeric"
-              editable={!isWatering}
-            />
-
-            <TouchableOpacity
-              style={[
-                styles.durationButton,
-                {
-                  backgroundColor:
-                    colorScheme === "dark" ? "#2C2C2C" : "#F5F5F5",
-                },
-              ]}
-              onPress={() => handleDurationChange(manualWateringDuration + 1)}
-              disabled={manualWateringDuration >= 30 || isWatering}
-            >
-              <Text style={{ color: colors.text }}>+</Text>
-            </TouchableOpacity>
+              Watering in progress for {manualWateringDuration} seconds
+            </Text>
           </View>
-        </View>
-      )}
-
-      {autoWateringEnabled && (
-        <Text
-          style={[
-            styles.autoWateringNote,
-            { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
-          ]}
-        >
-          Auto-watering is enabled. Turn it off to water manually.
-        </Text>
-      )}
-
-      {isWatering && (
-        <View style={styles.progressContainer}>
-          <View style={styles.progressBar}>
-            <View
-              style={[
-                styles.progressFill,
-                { width: `${wateringProgress}%`, backgroundColor: colors.tint },
-              ]}
-            />
-          </View>
-          <Text
-            style={[
-              styles.wateringNote,
-              { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
-            ]}
-          >
-            Watering in progress for {manualWateringDuration} seconds
-          </Text>
-        </View>
-      )}
-    </View>
+        )}
+      </View>
+    </ScrollView>
   );
 }
 
 const styles = StyleSheet.create({
+  scrollContainer: {
+    flex: 1,
+  },
+  scrollContentContainer: {
+    paddingBottom: 150, // Extra space to scroll
+  },
   container: {
     borderRadius: 12,
     padding: 16,
@@ -912,8 +929,8 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   plantImage: {
-    width: 50,
-    height: 50,
+    width: 100,
+    height: 100,
     marginRight: 16,
     borderRadius: 25, // Make the image circular
   },
