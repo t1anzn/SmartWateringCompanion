@@ -3,6 +3,8 @@
 #include "arduino_secrets.h"
 #include <Firebase.h>
 #include <ArduinoMqttClient.h>
+#include <R4SwRTC.h>
+#include <time.h>
 
 WiFiSSLClient sslClient;
 MqttClient mqttClient(sslClient);
@@ -51,6 +53,53 @@ unsigned long lastSensorReadTime = 0;
 unsigned long lastFirebaseSendTime = 0;
 unsigned long lastMqttSendTime = 0;
 unsigned long lastWateringCheckTime = 0;
+unsigned long lastHistoryUpdate = 0; // New variable to track history updates
+
+// Create our software RTC object
+// Adjust frequency as needed for accuracy (default is 100.0)
+r4SwRTC myRTC; 
+#define TMR_FREQ_HZ 100.076 // Adjust this value based on your testing for accuracy
+
+// Function to send history data to Firebase for the chart
+void updatePlantHistory(bool wasWatered) {
+  // Create a unique entry key using timestamp
+  String entryKey = "entry_" + String(millis());
+  
+  // Get the current date and time from our Software RTC
+  time_t currentUnixTime = myRTC.getUnixTime();
+  struct tm *timeInfo = myRTC.getTmTime();
+  
+  // Create a properly formatted ISO timestamp string
+  // Format: YYYY-MM-DDThh:mm:ss
+  char isoTimestamp[30];
+  snprintf(isoTimestamp, sizeof(isoTimestamp), "%04d-%02d-%02dT%02d:%02d:%02d",
+          timeInfo->tm_year + 1900,  // tm_year is years since 1900
+          timeInfo->tm_mon + 1,      // tm_mon is months since January (0-11)
+          timeInfo->tm_mday,         // tm_mday is day of month (1-31)
+          timeInfo->tm_hour,         // tm_hour is hours since midnight (0-23)
+          timeInfo->tm_min,          // tm_min is minutes after the hour (0-59)
+          timeInfo->tm_sec);         // tm_sec is seconds after the minute (0-59)
+  
+  // Convert to milliseconds for JavaScript
+  unsigned long jsTimestamp = (unsigned long)currentUnixTime * 1000UL;
+  
+  // Ensure values are in valid ranges
+  int adjustedMoistureLevel = max(0, moistureLevel);
+  int adjustedWaterLevel = max(0, map(distance, 10, 2, 0, 100));
+  
+  // Create history data with required fields for the chart
+  String historyData = "{";
+  historyData += "\"timestamp\": " + String(jsTimestamp) + ","; // Real Unix timestamp in milliseconds
+  historyData += "\"isoDate\": \"" + String(isoTimestamp) + "\","; // Add human-readable date
+  historyData += "\"moistureLevel\": " + String(adjustedMoistureLevel) + ",";
+  historyData += "\"waterLevel\": " + String(adjustedWaterLevel) + ",";
+  historyData += "\"watered\": " + String(wasWatered ? "true" : "false");
+  historyData += "}";
+  
+  // Send to Firebase at the correct path
+  fb.setJson("plants/plant1/history/" + entryKey, historyData);
+  Serial.println("Plant history updated in Firebase with timestamp: " + String(isoTimestamp));
+}
 
 // Connecting to MQTT Broker - Loop until connected
 void reconnect() {
@@ -118,13 +167,16 @@ void handleIncomingMessage(int messageSize) {
         // Turn on pump
         digitalWrite(ledPin, HIGH);
         
-        // Wait for the exact duration - THIS BLOCKS ALL OTHER OPERATIONS
+        // Wait for the exact duration
         delay(duration);
         
         // Turn off pump
         digitalWrite(ledPin, LOW);
         
         Serial.println("Watering completed");
+        
+        // Record this watering event in plant history
+        updatePlantHistory(true);
         
         // Send completion message
         String completedPayload = "{\"status\":\"watering_completed\"}";
@@ -197,17 +249,35 @@ void setup() {
   reconnect();
   mqttClient.onMessage(handleIncomingMessage);
 
-   // Publish test message
-  //  mqttClient.beginMessage(manualWateringTopic);
-  //  mqttClient.print("Hello from Arduino Uno R4 WiFi!");
-  //  mqttClient.endMessage();
-  //  Serial.println("Test message sent!");
-
-
   // Initialize the sensors
   pinMode(ledPin, OUTPUT);  // LED Pin acting as the water pump
   pinMode(trigPin, OUTPUT); // Ultrasonic sensor TRIG pin 
   pinMode(echoPin, INPUT); // Ultrasonic sensor ECHO pin
+
+  // Initialize the Software RTC
+  bool rtcStarted = myRTC.begin(TMR_FREQ_HZ);
+  if (!rtcStarted) {
+    Serial.println("Failed to start software RTC! Check if timer is available.");
+  } else {
+    Serial.println("Software RTC initialized successfully.");
+    
+    // Set initial time to April 19, 2025 at current time
+    // You can adjust this to the actual time using NTP or manual setting
+    struct tm timeInfo;
+    timeInfo.tm_year = 2025 - 1900; // Years since 1900
+    timeInfo.tm_mon = 4 - 1;        // Months since January (0-11)
+    timeInfo.tm_mday = 19;          // Day of the month (1-31)
+    timeInfo.tm_hour = 14;          // Hours (0-23)
+    timeInfo.tm_min = 48;           // Minutes (0-59)
+    timeInfo.tm_sec = 0;            // Seconds (0-59)
+    timeInfo.tm_isdst = -1;         // Daylight Saving Time flag
+    
+    time_t setTime = mktime(&timeInfo);
+    myRTC.setUnixTime(setTime);
+    
+    Serial.print("RTC time set to: ");
+    Serial.println(asctime(myRTC.getTmTime()));
+  }
 }
 
 void loop() {
@@ -287,6 +357,28 @@ void loop() {
     payload += "}";
     
     fb.setJson("sensorData", payload);
+    
+    // Update plant history more frequently (every 5 minutes = 300000ms)
+    // This ensures more data points for your charts
+    if (now - lastHistoryUpdate >= 300000) {
+      lastHistoryUpdate = now;
+      updatePlantHistory(false); // Regular update (not a watering event)
+      Serial.println("Updating history data in Firebase");
+      Serial.println("Moisture level: " + String(moistureLevel));
+      Serial.println("Water level: " + String(map(distance, 10, 2, 0, 100)) + "%");
+    }
+    
+    // Add debug prints for MQTT messages
+    Serial.println("MQTT messages sent - Moisture: " + String(moistureLevel) + ", Water Level: " + String(distance) + "cm");
+  }
+  
+  // Add current time display every 10 seconds
+  static unsigned long lastTimeDisplay = 0;
+  if (now - lastTimeDisplay >= 10000) {
+    lastTimeDisplay = now;
+    time_t currentTime = myRTC.getUnixTime();
+    Serial.print("Current time: ");
+    Serial.println(asctime(myRTC.getTmTime()));
   }
   
   // Keep system responsive

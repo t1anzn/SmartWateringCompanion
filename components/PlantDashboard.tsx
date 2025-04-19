@@ -14,9 +14,11 @@ import { useColorScheme } from "@/hooks/useColorScheme";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { MQTT_CONFIG, MQTT_TOPICS } from "@/constants/MQTTConfig";
 import MQTTService from "@/services/MQTTService";
+import PlantHistoryChart from "./PlantHistoryChart";
 
 // Define Plant interface at the top level
 interface Plant {
+  id: string; // Add id field
   name: string;
   type: string;
   wateringFrequency: number;
@@ -901,6 +903,18 @@ export default function PlantDashboard() {
             </Text>
           </View>
         )}
+
+        {/* Plant History Chart Section */}
+        <View style={styles.chartSection}>
+          <Text style={[styles.chartSectionTitle, { color: colors.text }]}>
+            Moisture History
+          </Text>
+          <PlantHistoryChart
+            plantId={plant?.id || "default"}
+            daysToShow={7}
+            colorScheme={colorScheme}
+          />
+        </View>
       </View>
     </ScrollView>
   );
@@ -1072,6 +1086,17 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     borderRadius: 4,
+  },
+  chartSection: {
+    marginTop: 24,
+    paddingTop: 16,
+    borderTopWidth: 1,
+    borderTopColor: "#E0E0E0",
+  },
+  chartSectionTitle: {
+    fontSize: 20,
+    fontWeight: "bold",
+    marginBottom: 16,
   },
 });
 
