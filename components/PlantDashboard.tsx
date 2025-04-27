@@ -1096,6 +1096,7 @@ const styles = StyleSheet.create({
   chartSectionTitle: {
     fontSize: 20,
     fontWeight: "bold",
+    marginTop: 16,
     marginBottom: 16,
   },
 });
