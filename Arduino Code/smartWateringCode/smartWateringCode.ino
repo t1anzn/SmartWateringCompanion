@@ -268,7 +268,7 @@ void updatePlantHistory(bool wasWatered) {
 void handleIncomingMessage(int messageSize) {
   String topic = mqttClient.messageTopic();
   String message = "";
-  while (mqttClient.available()) {
+  while (mqttClient.available()) { // Read message one character at a time and append to string
     char c = (char)mqttClient.read();
     message += c;
   }
@@ -339,13 +339,59 @@ void handleIncomingMessage(int messageSize) {
   }
   
   // Handle messages for automatic watering topic
-  if(topic.equals(autoWateringTopic) && message == "ON") {
-    digitalWrite(ledPin, HIGH); // Turn on pump
-    Serial.println("Auto Watering: ON");
-  } else if(topic.equals(autoWateringTopic) && message == "OFF") {
-    digitalWrite(ledPin, LOW); // Turn off pump
-    Serial.println("Auto watering: OFF");
-    // Don't change manualOverride as auto watering is a temporary state
+  if(topic.equals(autoWateringTopic)) {
+    // Check if the message is the JSON format with duration
+    if(message.indexOf("{") >= 0) {
+      // Try to parse as JSON
+      int actionStart = message.indexOf("\"action\":\"") + 10;
+      int actionEnd = message.indexOf("\"", actionStart);
+      String action = message.substring(actionStart, actionEnd);
+      
+      // Extract duration if available
+      unsigned long duration = 5000; // Default 5 seconds
+      if(message.indexOf("\"duration\":") >= 0) {
+        int durationStart = message.indexOf("\"duration\":") + 11;
+        int durationEnd = message.indexOf("}", durationStart);
+        if(durationEnd < 0) durationEnd = message.indexOf(",", durationStart);
+        String durationStr = message.substring(durationStart, durationEnd);
+        duration = durationStr.toInt();
+      }
+      
+      if(action == "ON") {
+        Serial.print("Auto Watering: ON for exactly ");
+        Serial.print(duration);
+        Serial.println(" milliseconds");
+        
+        // Turn on pump
+        digitalWrite(ledPin, HIGH);
+        
+        // Wait for the exact duration
+        delay(duration);
+        
+        // Turn off pump
+        digitalWrite(ledPin, LOW);
+        
+        Serial.println("Auto watering completed");
+        
+        // Record this watering event in plant history
+        updatePlantHistory(true);
+      
+        // Send completion message
+        String completedPayload = "{\"status\":\"watering_completed\"}";
+        mqttClient.beginMessage(manualWateringStatusTopic);
+        mqttClient.print(completedPayload);
+        mqttClient.endMessage();
+      }
+    }
+    // Handle legacy ON/OFF messages for backward compatibility
+    else if(message == "ON") {
+      digitalWrite(ledPin, HIGH); // Turn on pump
+      Serial.println("Auto Watering: ON (legacy command)");
+    } else if(message == "OFF") {
+      digitalWrite(ledPin, LOW); // Turn off pump
+      Serial.println("Auto watering: OFF");
+      // Don't change manualOverride as auto watering is a temporary state
+    }
   }
 }
 

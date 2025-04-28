@@ -364,7 +364,7 @@ export default function PlantHistoryChart({
     <View style={styles.container}>
       <View style={styles.headerContainer}>
         <Text style={[styles.subsectionTitle, { color: colors.text }]}>
-          Moisture Level History
+          Controls
         </Text>
         <View style={styles.controlsContainer}>
           <View style={styles.viewModeContainer}>
@@ -574,7 +574,7 @@ export default function PlantHistoryChart({
 const styles = StyleSheet.create({
   container: {
     position: "relative", // Make container relative for absolute positioning of tooltip
-    marginTop: 20,
+    marginTop: 0,
     marginBottom: 10,
     padding: 16,
     borderRadius: 12,
@@ -622,9 +622,7 @@ const styles = StyleSheet.create({
     marginBottom: 4,
   },
   headerContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
+    flexDirection: "column",
     marginBottom: 12,
   },
   refreshButton: {
