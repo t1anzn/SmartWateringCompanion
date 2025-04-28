@@ -6,28 +6,48 @@
 #include <R4SwRTC.h>
 #include <time.h>
 
-WiFiSSLClient sslClient;
-MqttClient mqttClient(sslClient);
+// Define all constants for connection timeouts and retries
+#define WIFI_TIMEOUT 20000       // Timeout for WiFi connection in milliseconds
+#define WIFI_MAX_RETRIES 3       // Maximum number of WiFi connection retry attempts
+#define MQTT_TIMEOUT 10000       // Timeout for MQTT connection in milliseconds
+#define MQTT_MAX_RETRIES 3       // Maximum number of MQTT connection retry attempts
+#define MQTT_KEEPALIVE 60        // Keepalive interval for MQTT in seconds
 
-Firebase fb(REFERENCE_URL); // Test Mode
-// Firebase fb(REFERENCE_URL, AUTH_TOKEN); //Locked Mode (With Authentication)
-
-/* WiFi credentials and HiveMC credentials from arduino_secrets.h */
-// const char* ssid
-// const char* pass
-// const char* mqtt_server
-// const char* mqtt_username
-// const char* mqtt_password
-// const int mqtt_port
-
-// Topic to publish to
+// Topic definitions
 const char* manualWateringTopic = "plantSystem/manualWatering";
 const char* autoWateringTopic = "plantSystem/autoWatering";
 const char* soilMoistureTopic = "plantSystem/soilMoisture"; 
 const char* waterLevelTopic = "plantSystem/waterLevel";
 const char* manualWateringStatusTopic = "plantSystem/manualWatering/status";
 
+// Connection state tracking variables
+bool wifiConnected = false;
+bool mqttConnected = false;
+unsigned long lastWifiRetry = 0;
+unsigned long lastMqttRetry = 0;
+int wifiRetryCount = 0;
+int mqttRetryCount = 0;
 int status = WL_IDLE_STATUS;     // the WiFi radio's status
+
+WiFiSSLClient sslClient;
+MqttClient mqttClient(sslClient);
+
+Firebase fb(REFERENCE_URL); // Test Mode
+// Firebase fb(REFERENCE_URL, AUTH_TOKEN); //Locked Mode (With Authentication)
+
+// Connection status constants
+#define WIFI_CONNECTING 0
+#define WIFI_CONNECTED 1
+#define WIFI_CONNECTION_FAILED 2
+#define MQTT_CONNECTING 3
+#define MQTT_CONNECTED 4
+#define MQTT_CONNECTION_FAILED 5
+
+// Maximum connection retries before waiting longer
+#define MAX_WIFI_QUICK_RETRIES 3
+#define MAX_MQTT_QUICK_RETRIES 3
+#define QUICK_RETRY_INTERVAL 5000    // 5 seconds between quick retries
+#define LONG_RETRY_INTERVAL 60000    // 1 minute for longer wait after failures
 
 // Pin definitions
 const int moistureSensorPin = A0;
@@ -59,6 +79,150 @@ unsigned long lastHistoryUpdate = 0; // New variable to track history updates
 // Adjust frequency as needed for accuracy (default is 100.0)
 r4SwRTC myRTC; 
 #define TMR_FREQ_HZ 100.076 // Adjust this value based on your testing for accuracy
+
+// Function to print human-readable WiFi status
+void printWifiStatus(int status) {
+  switch (status) {
+    case WL_CONNECTED:
+      Serial.println("Connected to WiFi network");
+      break;
+    case WL_NO_SHIELD:
+      Serial.println("WiFi shield not present");
+      break;
+    case WL_IDLE_STATUS:
+      Serial.println("WiFi status: Idle");
+      break;
+    case WL_NO_SSID_AVAIL:
+      Serial.println("No SSID available/SSID not found");
+      break;
+    case WL_SCAN_COMPLETED:
+      Serial.println("WiFi scan completed");
+      break;
+    case WL_CONNECT_FAILED:
+      Serial.println("WiFi connection failed");
+      break;
+    case WL_CONNECTION_LOST:
+      Serial.println("WiFi connection lost");
+      break;
+    case WL_DISCONNECTED:
+      Serial.println("WiFi disconnected");
+      break;
+    default:
+      Serial.print("Unknown WiFi status: ");
+      Serial.println(status);
+  }
+}
+
+// Function to connect to WiFi with better error handling
+bool connectToWifi() {
+  if (WiFi.status() == WL_CONNECTED) {
+    return true;
+  }
+  
+  Serial.print("Attempting to connect to WPA SSID: ");
+  Serial.println(ssid);
+  
+  // Start connection attempt with timeout
+  unsigned long startAttempt = millis();
+  status = WiFi.begin(ssid, pass);
+  Serial.print("Initial WiFi status: ");
+  printWifiStatus(status);
+  
+  // Wait for connection with timeout
+  while (status != WL_CONNECTED && millis() - startAttempt < WIFI_TIMEOUT) {
+    delay(500);
+    Serial.print(".");
+    status = WiFi.status();
+  }
+  
+  Serial.println();
+  printWifiStatus(status);
+  
+  if (status == WL_CONNECTED) {
+    IPAddress ip = WiFi.localIP();
+    Serial.print("IP Address: ");
+    Serial.println(ip);
+    Serial.print("Signal strength (RSSI): ");
+    Serial.print(WiFi.RSSI());
+    Serial.println(" dBm");
+    wifiConnected = true;
+    wifiRetryCount = 0;
+    return true;
+  } else {
+    wifiConnected = false;
+    wifiRetryCount++;
+    Serial.print("WiFi connection failed. Retry count: ");
+    Serial.println(wifiRetryCount);
+    return false;
+  }
+}
+
+// Improved MQTT connection function with debugging
+bool connectToMqtt() {
+  if (mqttClient.connected()) {
+    return true;
+  }
+  
+  if (!wifiConnected) {
+    Serial.println("Cannot connect to MQTT: WiFi not connected");
+    return false;
+  }
+  
+  Serial.print("Attempting MQTT connection to ");
+  Serial.print(mqtt_server);
+  Serial.print(":");
+  Serial.println(mqtt_port);
+  
+  // Generate a random client ID
+  String clientId = "ArduinoClient-";
+  clientId += String(random(0xffff), HEX);
+  mqttClient.setId(clientId.c_str());
+  
+  // Set credentials
+  mqttClient.setUsernamePassword(mqtt_username, mqtt_password);
+  
+  // Set connection parameters
+  mqttClient.setKeepAliveInterval(MQTT_KEEPALIVE);
+  mqttClient.setConnectionTimeout(MQTT_TIMEOUT);
+  
+  // Connect with SSL
+  bool success = mqttClient.connect(mqtt_server, mqtt_port);
+  
+  if (success) {
+    Serial.println("Connected to MQTT broker!");
+    mqttClient.subscribe(manualWateringTopic);
+    mqttClient.subscribe(autoWateringTopic);
+    mqttConnected = true;
+    mqttRetryCount = 0;
+    return true;
+  } else {
+    Serial.print("MQTT connection failed, error code: ");
+    Serial.println(mqttClient.connectError());
+    mqttConnected = false;
+    mqttRetryCount++;
+    return false;
+  }
+}
+
+// Connecting to MQTT Broker - Loop until connected
+void reconnect() {
+  unsigned long retryInterval = (mqttRetryCount > MAX_MQTT_QUICK_RETRIES) ? 
+                                LONG_RETRY_INTERVAL : QUICK_RETRY_INTERVAL;
+                                
+  if (!wifiConnected) {
+    if (millis() - lastWifiRetry > retryInterval) {
+      lastWifiRetry = millis();
+      connectToWifi();
+    }
+  }
+  
+  if (wifiConnected && !mqttClient.connected()) {
+    if (millis() - lastMqttRetry > retryInterval) {
+      lastMqttRetry = millis();
+      connectToMqtt();
+    }
+  }
+}
 
 // Function to send history data to Firebase for the chart
 void updatePlantHistory(bool wasWatered) {
@@ -99,31 +263,6 @@ void updatePlantHistory(bool wasWatered) {
   // Send to Firebase at the correct path
   fb.setJson("plants/plant1/history/" + entryKey, historyData);
   Serial.println("Plant history updated in Firebase with timestamp: " + String(isoTimestamp));
-}
-
-// Connecting to MQTT Broker - Loop until connected
-void reconnect() {
-  // Simplified reconnect function - fewer debug statements, similar to what worked before
-  while (!mqttClient.connected()) {
-    Serial.print("Attempting MQTT connection...");
-    
-    String clientId = "ArduinoClient-";
-    clientId += String(random(0xffff), HEX); // Create random client ID
-    mqttClient.setId(clientId.c_str());
-    
-    mqttClient.setUsernamePassword(mqtt_username, mqtt_password);
-    if (mqttClient.connect(mqtt_server, mqtt_port)) {
-      Serial.println("Connected to MQTT!");
-      mqttClient.subscribe(manualWateringTopic);
-      mqttClient.subscribe(autoWateringTopic);
-      return;
-    } else {
-      Serial.print("Failed, code=");
-      Serial.print(mqttClient.connectError());
-      Serial.println(" — trying again in 5 seconds");
-      delay(5000);
-    }
-  }
 }
 
 void handleIncomingMessage(int messageSize) {
@@ -210,7 +349,6 @@ void handleIncomingMessage(int messageSize) {
   }
 }
 
-
 void setup() {
   // Start serial communication
   Serial.begin(115200);
@@ -223,31 +361,33 @@ void setup() {
     Serial.println("Please upgrade the firmware");
   }
 
-   // attempt to connect to WiFi network:
-  while (status != WL_CONNECTED) {
-    Serial.print("Attempting to connect to WPA SSID: ");
-    Serial.println(ssid);
-    // Connect to WPA/WPA2 network:
-    status = WiFi.begin(ssid, pass);
-
-    // wait 10 seconds for connection:
-    delay(10000);
+  // Connect to WiFi with better error handling
+  lastWifiRetry = millis();
+  while (!connectToWifi() && wifiRetryCount < WIFI_MAX_RETRIES) {
+    delay(QUICK_RETRY_INTERVAL);
+    lastWifiRetry = millis();
   }
 
-  // you're connected now, so print out the data:
-  Serial.println("You're connected to the network");
-  // Serial.println(ssid);
-  // Serial.println(pass);
-  IPAddress ip = WiFi.localIP();
-  Serial.println("IP Address: ");
-  Serial.println(ip);
+  if (!wifiConnected) {
+    Serial.println("Failed to connect to WiFi after multiple attempts.");
+    Serial.println("Will continue trying in the main loop...");
+  }
 
-  Serial.print("Connecting to MQTT broker...");
-  Serial.println("Using HiveMQ Cloud broker");
-  mqttClient.setUsernamePassword(mqtt_username, mqtt_password);
-  
-  reconnect();
-  mqttClient.onMessage(handleIncomingMessage);
+  // Connect to MQTT with better error handling
+  lastMqttRetry = millis();
+  if (wifiConnected) {
+    while (!connectToMqtt() && mqttRetryCount < MQTT_MAX_RETRIES) {
+      delay(QUICK_RETRY_INTERVAL);
+      lastMqttRetry = millis();
+    }
+    
+    if (!mqttConnected) {
+      Serial.println("Failed to connect to MQTT after multiple attempts.");
+      Serial.println("Will continue trying in the main loop...");
+    } else {
+      mqttClient.onMessage(handleIncomingMessage);
+    }
+  }
 
   // Initialize the sensors
   pinMode(ledPin, OUTPUT);  // LED Pin acting as the water pump
@@ -281,6 +421,16 @@ void setup() {
 }
 
 void loop() {
+  // First, ensure connections are maintained
+  if (!wifiConnected || !mqttConnected) {
+    reconnect();
+  }
+  
+  // Only proceed with MQTT operations if connected
+  if (mqttConnected) {
+    mqttClient.poll();
+  }
+  
   // Focus only on timing - do this first
   if (wateringTimerActive) {
     unsigned long now = millis();
