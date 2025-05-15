@@ -50,10 +50,11 @@ Firebase fb(REFERENCE_URL); // Test Mode
 #define LONG_RETRY_INTERVAL 60000    // 1 minute for longer wait after failures
 
 // Pin definitions
-const int moistureSensorPin = A0;
+const int moistureSensorPin = A1;
 const int trigPin = 8;            // Ultrasonic sensor TRIG (connected to D8)
 const int echoPin = 9;            // Ultrasonic sensor ECHO (connected to D9)
 const int ledPin = 10;            // LED for status indication (connected to D10)
+
 
 // Variables for sensor readings
 int moistureLevel;
@@ -61,7 +62,7 @@ long duration;
 long distance;
 bool manualOverride = false; // Track manual watering state
 bool isAutoWateringEnabled = true; // Track if auto-watering is enabled or disabled
-const int MOISTURE_THRESHOLD = 100; // Match the threshold used in the app
+const int MOISTURE_THRESHOLD = 400; // Match the threshold used in the app
 
 unsigned long wateringEndTime = 0;
 bool wateringTimerActive = false;
@@ -111,6 +112,38 @@ void printWifiStatus(int status) {
       Serial.print("Unknown WiFi status: ");
       Serial.println(status);
   }
+}
+
+// Add this function at the beginning of your code, before setup()
+void listAvailableNetworks() {
+  Serial.println("Scanning for available WiFi networks...");
+  
+  // Scan for networks
+  int numNetworks = WiFi.scanNetworks();
+  
+  if (numNetworks == 0) {
+    Serial.println("No networks found");
+  } else {
+    Serial.print("Found ");
+    Serial.print(numNetworks);
+    Serial.println(" networks:");
+    
+    for (int i = 0; i < numNetworks; i++) {
+      // Print detailed information about each network
+      Serial.print(i + 1);
+      Serial.print(") Name: '");
+      Serial.print(WiFi.SSID(i));
+      Serial.print("' | Signal: ");
+      Serial.print(WiFi.RSSI(i));
+      Serial.print(" dBm | Encryption: ");
+      Serial.println(WiFi.encryptionType(i));
+    }
+  }
+  
+  Serial.println("Target SSID from config: '");
+  Serial.print(ssid);
+  Serial.println("'");
+  Serial.println("-----------------------------");
 }
 
 // Function to connect to WiFi with better error handling
@@ -305,12 +338,14 @@ void handleIncomingMessage(int messageSize) {
         
         // Turn on pump
         digitalWrite(ledPin, HIGH);
+        digitalWrite(3, HIGH); // Turn on relay for pump
         
         // Wait for the exact duration
         delay(duration);
         
         // Turn off pump
         digitalWrite(ledPin, LOW);
+        digitalWrite(3, LOW); // Turn off relay for pump
         
         Serial.println("Watering completed");
         
@@ -328,11 +363,13 @@ void handleIncomingMessage(int messageSize) {
     else if(message == "ON") {
       manualOverride = true;
       digitalWrite(ledPin, HIGH); // Turn on pump
+      digitalWrite(3, HIGH); // Turn on relay for pump
       Serial.println("Manual Watering: ON (legacy command)");
     } 
     else if(message == "OFF") {
       manualOverride = false;
-      digitalWrite(ledPin, LOW); // Turn off pump
+      digitalWrite(ledPin, LOW); // Turn off led pump indicator
+      digitalWrite(3, LOW); // Turn off relay for pump
       wateringTimerActive = false; // Cancel any active timer
       Serial.println("Manual watering: OFF");
     }
@@ -364,12 +401,14 @@ void handleIncomingMessage(int messageSize) {
         
         // Turn on pump
         digitalWrite(ledPin, HIGH);
+        digitalWrite(3, HIGH); // Turn on relay for pump
         
         // Wait for the exact duration
         delay(duration);
         
         // Turn off pump
         digitalWrite(ledPin, LOW);
+        digitalWrite(3, LOW); // Turn off relay for pump
         
         Serial.println("Auto watering completed");
         
@@ -385,10 +424,12 @@ void handleIncomingMessage(int messageSize) {
     }
     // Handle legacy ON/OFF messages for backward compatibility
     else if(message == "ON") {
-      digitalWrite(ledPin, HIGH); // Turn on pump
+      digitalWrite(ledPin, HIGH); // Turn on led pump indicator
+      digitalWrite(3, HIGH); // Turn on relay for pump
       Serial.println("Auto Watering: ON (legacy command)");
     } else if(message == "OFF") {
-      digitalWrite(ledPin, LOW); // Turn off pump
+      digitalWrite(ledPin, LOW); // Turn off led pump indicator
+      digitalWrite(3, LOW); // Turn off relay for pump
       Serial.println("Auto watering: OFF");
       // Don't change manualOverride as auto watering is a temporary state
     }
@@ -402,6 +443,9 @@ void setup() {
     ; // wait for serial to be ready (for boards with native USB)
   } 
 
+  // List available networks for debugging
+  listAvailableNetworks();
+  
   String fv = WiFi.firmwareVersion();
   if (fv < WIFI_FIRMWARE_LATEST_VERSION) {
     Serial.println("Please upgrade the firmware");
@@ -439,6 +483,7 @@ void setup() {
   pinMode(ledPin, OUTPUT);  // LED Pin acting as the water pump
   pinMode(trigPin, OUTPUT); // Ultrasonic sensor TRIG pin 
   pinMode(echoPin, INPUT); // Ultrasonic sensor ECHO pin
+  pinMode(3, OUTPUT); //output pin for relay board, send signal
 
   // Initialize the Software RTC
   bool rtcStarted = myRTC.begin(TMR_FREQ_HZ);
@@ -533,6 +578,7 @@ void loop() {
     // Maintain pump state
     if (!manualOverride) {
       digitalWrite(ledPin, LOW);
+      digitalWrite(3, LOW); // Turn off relay for pump
     }
     
     // Send data to MQTT and Firebase

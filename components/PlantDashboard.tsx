@@ -41,7 +41,7 @@ export default function PlantDashboard() {
   const colorScheme = useColorScheme() ?? "light";
   const colors = Colors[colorScheme];
 
-  const MOISTURE_THRESHOLD = 10; // Adjust based on sensor calibration
+  const MOISTURE_THRESHOLD = 400; // Adjust based on sensor calibration
   const CHECK_INTERVAL = 3600000; // Check moisture every hour (in ms)
 
   // Add state to track watering progress (0-100%)
@@ -740,9 +740,7 @@ export default function PlantDashboard() {
                       0,
                       Math.min(
                         100,
-                        ((moistureLevel - MOISTURE_THRESHOLD) /
-                          (100 - MOISTURE_THRESHOLD)) *
-                          100
+                        (moistureLevel / 750) * 100
                       )
                     )}%`,
                     backgroundColor:
@@ -759,12 +757,12 @@ export default function PlantDashboard() {
                 { color: colorScheme === "dark" ? "#9BA1A6" : "#757575" },
               ]}
             >
-              {moistureLevel < MOISTURE_THRESHOLD + 10
+              {moistureLevel < 400
                 ? "Dry - Needs Water"
-                : moistureLevel < 50
+                : moistureLevel < 500
                 ? "Slightly Moist"
                 : "Well Hydrated"}{" "}
-              ({moistureLevel}%)
+              ({Math.round((moistureLevel / 750) * 100)}%)
             </Text>
           </View>
         </View>
