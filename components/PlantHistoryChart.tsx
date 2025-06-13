@@ -32,7 +32,7 @@ interface SensorDataPoint {
   moistureLevel: number;
   waterLevel: number;
   watered?: boolean;
-  isoDate?: string; // Add this property to match the data coming from Arduino
+  isoDate?: string; 
 }
 
 export default function PlantHistoryChart({
@@ -260,8 +260,6 @@ export default function PlantHistoryChart({
       wateringEvents,
     });
 
-    // Remove the code that adds artificial variation and just use real data
-
     const moistureMin = 0;
     const moistureMax = Math.max(500, ...moistureData) + 100;
     const waterLevelMin = 0;
@@ -276,7 +274,7 @@ export default function PlantHistoryChart({
       moistureMax,
       waterLevelMin,
       waterLevelMax,
-      processedEntries, // Add this to the return value
+      processedEntries, 
     };
   }
 
@@ -315,7 +313,6 @@ export default function PlantHistoryChart({
   const defaultMoistureData = [0, 50, 0];
   const defaultWaterLevelData = [0, 50, 0];
 
-  // Make sure we have proper datasets
   const chartMoistureData = moistureData.length
     ? moistureData
     : defaultMoistureData;
