@@ -2,6 +2,12 @@
 
 A smart irrigation system that monitors soil moisture and automatically waters plants when needed.
 
+
+## App Preview
+
+![IMG_9313](https://github.com/user-attachments/assets/bc6906d5-ee5d-4844-9de9-11049928f83a)
+
+
 ## Prerequisites
 
 - Arduino IDE (version 2.0.0 or later recommended)
