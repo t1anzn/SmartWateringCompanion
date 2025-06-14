@@ -1,16 +1,21 @@
 {
-  "name": "bridge",
+  "name": "smart-watering-bridge",
   "version": "1.0.0",
-  "main": "api-server.js",
+  "description": "MQTT bridge for UAL building air quality data",
+  "main": "mqtt-bridge.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "start": "node mqtt-bridge.js",
+    "dev": "node mqtt-bridge.js"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "description": "",
   "dependencies": {
-    "mqtt": "^5.13.1",
-    "ws": "^8.18.2"
-  }
+    "mqtt": "^4.3.7"
+  },
+  "keywords": [
+    "mqtt",
+    "bridge",
+    "ual",
+    "air-quality"
+  ],
+  "author": "Smart Watering Companion",
+  "license": "MIT"
 }
