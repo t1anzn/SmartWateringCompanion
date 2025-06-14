@@ -57,90 +57,108 @@ class EnhancedMQTTService {
         }
     }
 
-    // Simple UAL connection test
+    // UAL connection via bridge service
     async connectToUALAirQuality() { 
         try { 
-            console.log('🌍 Testing UAL Air Quality MQTT connection...');
+            console.log('🌍 Connecting to UAL via bridge service...');
             
-            // Try WebSocket connection first
-            const { default: mqtt } = await import('mqtt/dist/mqtt.min.js');
+            // Try different connection URLs
+            const connectionUrls = [
+                'ws://localhost:9001',
+                'ws://127.0.0.1:9001',
+                'ws://0.0.0.0:9001'
+            ];
             
-            const wsUrl = `ws://${UAL_MQTT_CONFIG.HOST}:8083/mqtt`;
-            console.log(`🔗 Attempting connection to: ${wsUrl}`);
+            for (const url of connectionUrls) {
+                try {
+                    console.log(`🔍 Trying connection to: ${url}`);
+                    const connected = await this.tryConnection(url);
+                    if (connected) return true;
+                } catch (error) {
+                    console.log(`❌ Failed to connect to ${url}:`, error.message);
+                }
+            }
             
-            this.ualClient = mqtt.connect(wsUrl, {
-                username: UAL_MQTT_CONFIG.USERNAME,
-                password: UAL_MQTT_CONFIG.PASSWORD,
-                clientId: `SmartWatering_UAL_${Date.now()}`,
-                connectTimeout: 15000,
-                keepalive: 60
-            });
-
-            return new Promise((resolve, reject) => {
-                const timeout = setTimeout(() => {
-                    console.log("❌ UAL connection timeout");
-                    this.ualClient?.end();
-                    reject(new Error("Connection timeout"));
-                }, 15000);
-
-                this.ualClient.on('connect', () => {
-                    clearTimeout(timeout);
-                    console.log('✅ UAL MQTT connected successfully');
-                    this.isUALConnected = true;
-                    
-                    // Subscribe to air quality data
-                    this.ualClient.subscribe(UAL_MQTT_TOPICS.AIR_QUALITY_READINGS, (err: any) => {
-                        if (err) {
-                            console.error('❌ Subscribe failed:', err);
-                            reject(err);
-                        } else {
-                            console.log('📡 Subscribed to air quality readings');
-                            this.setupMessageHandler();
-                            resolve(true);
-                        }
-                    });
-                });
-
-                this.ualClient.on('error', (error: any) => {
-                    clearTimeout(timeout);
-                    console.error('❌ UAL MQTT connection error:', error);
-                    this.isUALConnected = false;
-                    reject(error);
-                });
-
-                this.ualClient.on('close', () => {
-                    console.log('🔌 UAL MQTT connection closed');
-                    this.isUALConnected = false;
-                });
-            });
+            throw new Error('All connection attempts failed');
 
         } catch (error) { 
-            console.error("🔴 UAL connection failed:", error);
+            console.error("🔴 UAL bridge connection failed:", error);
             this.isUALConnected = false;
             throw error;
         }
     }
 
-    private setupMessageHandler() {
-        this.ualClient.on('message', (topic: string, message: Buffer) => {
-            try {
-                console.log(`📨 UAL message on ${topic}:`, message.toString());
-                
-                const rawData = JSON.parse(message.toString());
-                const sensorId = topic.split('/')[2];
-                
-                const airQualityData: AirQualityData = {
-                    ...rawData,
-                    sensorId,
-                    timestamp: Date.now()
-                };
-                
-                this.airQualityHandlers.forEach(handler => handler(airQualityData));
-                
-            } catch (error) {
-                console.error('❌ Error parsing message:', error);
-            }
+    private async tryConnection(url: string): Promise<boolean> {
+        return new Promise((resolve, reject) => {
+            console.log(`🔗 Creating WebSocket connection to ${url}`);
+            const ws = new WebSocket(url);
+            
+            const timeout = setTimeout(() => {
+                ws.close();
+                reject(new Error(`Connection timeout for ${url}`));
+            }, 3000);
+
+            ws.onopen = () => {
+                clearTimeout(timeout);
+                console.log(`✅ Connected to bridge at ${url}`);
+                this.ualClient = ws;
+                this.isUALConnected = true;
+                this.setupWebSocketHandlers(ws);
+                resolve(true);
+            };
+
+            ws.onerror = (error) => {
+                clearTimeout(timeout);
+                console.error(`❌ Connection error for ${url}:`, error);
+                reject(error);
+            };
         });
+    }
+
+    private setupWebSocketHandlers(ws: WebSocket) {
+        ws.onmessage = (event) => {
+            try {
+                const data = JSON.parse(event.data);
+                if (data.type === 'welcome') {
+                    console.log('🎉 Received welcome message from bridge:', data.message);
+                    return;
+                }
+                console.log(`📨 UAL data from ${data.topic}:`, data.payload);
+                this.handleUALMessage(data.payload);
+            } catch (error) {
+                console.error('❌ Error parsing bridge message:', error);
+            }
+        };
+
+        ws.onclose = () => {
+            console.log('🔌 Bridge connection closed');
+            this.isUALConnected = false;
+        };
+
+        ws.onerror = (error) => {
+            console.error('❌ WebSocket error:', error);
+            this.isUALConnected = false;
+        };
+    }
+
+    private handleUALMessage(payload: string) {
+        try {
+            console.log('📨 UAL message received:', payload);
+            
+            const rawData = JSON.parse(payload);
+            
+            const airQualityData: AirQualityData = {
+                ...rawData,
+                sensorId: rawData.sensorId || 'unknown',
+                timestamp: Date.now(),
+                location: 'UAL CCI Building'
+            };
+            
+            this.airQualityHandlers.forEach(handler => handler(airQualityData));
+            
+        } catch (error) {
+            console.error('❌ Error parsing UAL message:', error);
+        }
     }
 
     // Connect to both systems
@@ -177,7 +195,7 @@ class EnhancedMQTTService {
 
     getConnectionStatus() {
         return {
-            plantSystem: MQTTService.isConnected ? MQTTService.isConnected() : false,
+            plantSystem: typeof MQTTService.isConnected === 'function' ? MQTTService.isConnected() : MQTTService.isConnected || false,
             ualAirQuality: this.isUALConnected
         };
     }
@@ -185,7 +203,9 @@ class EnhancedMQTTService {
     async disconnect() {
         if (MQTTService.disconnect) await MQTTService.disconnect();
         if (this.ualClient) {
-            this.ualClient.end();
+            if (this.ualClient.close) {
+                this.ualClient.close();
+            }
             this.ualClient = null;
         }
         this.isUALConnected = false;

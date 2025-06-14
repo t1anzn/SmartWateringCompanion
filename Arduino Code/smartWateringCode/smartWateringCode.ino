@@ -5,6 +5,7 @@
 #include <ArduinoMqttClient.h>
 #include <R4SwRTC.h>
 #include <time.h>
+#include <WiFiUdp.h>
 
 // Define all constants for connection timeouts and retries
 #define WIFI_TIMEOUT 20000       // Timeout for WiFi connection in milliseconds
@@ -80,6 +81,12 @@ unsigned long lastHistoryUpdate = 0; // New variable to track history updates
 // Adjust frequency as needed for accuracy (default is 100.0)
 r4SwRTC myRTC; 
 #define TMR_FREQ_HZ 100.076 // Adjust this value based on your testing for accuracy
+
+// Add NTP variables
+WiFiUDP ntpUDP;
+const char* ntpServer = "pool.ntp.org";
+const long gmtOffset_sec = 0;        // GMT offset in seconds (adjust for your timezone)
+const int daylightOffset_sec = 3600; // Daylight saving time offset in seconds
 
 // Function to print human-readable WiFi status
 void printWifiStatus(int status) {
@@ -436,6 +443,65 @@ void handleIncomingMessage(int messageSize) {
   }
 }
 
+// Function to get time from NTP server
+bool syncTimeFromNTP() {
+  Serial.println("Syncing time from NTP server...");
+  
+  // Send NTP request
+  byte packetBuffer[48];
+  memset(packetBuffer, 0, 48);
+  
+  // Initialize values needed to form NTP request
+  packetBuffer[0] = 0b11100011;   // LI, Version, Mode
+  packetBuffer[1] = 0;            // Stratum, or type of clock
+  packetBuffer[2] = 6;            // Polling Interval
+  packetBuffer[3] = 0xEC;         // Peer Clock Precision
+  
+  // 8 bytes of zero for Root Delay & Root Dispersion
+  packetBuffer[12] = 49;
+  packetBuffer[13] = 0x4E;
+  packetBuffer[14] = 49;
+  packetBuffer[15] = 52;
+  
+  // Send packet to NTP server
+  ntpUDP.begin(123);
+  ntpUDP.beginPacket(ntpServer, 123);
+  ntpUDP.write(packetBuffer, 48);
+  ntpUDP.endPacket();
+  
+  // Wait for response
+  delay(1000);
+  
+  if (ntpUDP.parsePacket()) {
+    ntpUDP.read(packetBuffer, 48);
+    
+    // Extract timestamp from response
+    unsigned long highWord = word(packetBuffer[40], packetBuffer[41]);
+    unsigned long lowWord = word(packetBuffer[42], packetBuffer[43]);
+    unsigned long secsSince1900 = highWord << 16 | lowWord;
+    
+    // Convert to Unix timestamp (seconds since Jan 1, 1970)
+    const unsigned long seventyYears = 2208988800UL;
+    unsigned long epoch = secsSince1900 - seventyYears;
+    
+    // Adjust for timezone and daylight saving
+    epoch += gmtOffset_sec + daylightOffset_sec;
+    
+    // Set the RTC time
+    myRTC.setUnixTime(epoch);
+    
+    Serial.print("NTP time synchronized: ");
+    Serial.println(asctime(myRTC.getTmTime()));
+    
+    ntpUDP.stop();
+    return true;
+  } else {
+    Serial.println("Failed to get NTP response");
+    ntpUDP.stop();
+    return false;
+  }
+}
+
 void setup() {
   // Start serial communication
   Serial.begin(115200);
@@ -492,19 +558,40 @@ void setup() {
   } else {
     Serial.println("Software RTC initialized successfully.");
     
-    // Set initial time to April 19, 2025 at current time
-    // You can adjust this to the actual time using NTP or manual setting
-    struct tm timeInfo;
-    timeInfo.tm_year = 2025 - 1900; // Years since 1900
-    timeInfo.tm_mon = 4 - 1;        // Months since January (0-11)
-    timeInfo.tm_mday = 19;          // Day of the month (1-31)
-    timeInfo.tm_hour = 14;          // Hours (0-23)
-    timeInfo.tm_min = 48;           // Minutes (0-59)
-    timeInfo.tm_sec = 0;            // Seconds (0-59)
-    timeInfo.tm_isdst = -1;         // Daylight Saving Time flag
-    
-    time_t setTime = mktime(&timeInfo);
-    myRTC.setUnixTime(setTime);
+    // Try to sync time from NTP if WiFi is connected
+    if (wifiConnected) {
+      if (syncTimeFromNTP()) {
+        Serial.println("Time synchronized from NTP server");
+      } else {
+        Serial.println("NTP sync failed, using default time");
+        // Fallback to a reasonable default time
+        struct tm timeInfo;
+        timeInfo.tm_year = 2025 - 1900;
+        timeInfo.tm_mon = 6 - 1;
+        timeInfo.tm_mday = 14;
+        timeInfo.tm_hour = 12;
+        timeInfo.tm_min = 0;
+        timeInfo.tm_sec = 0;
+        timeInfo.tm_isdst = -1;
+        
+        time_t setTime = mktime(&timeInfo);
+        myRTC.setUnixTime(setTime);
+      }
+    } else {
+      Serial.println("WiFi not connected, using default time");
+      // Fallback to default time
+      struct tm timeInfo;
+      timeInfo.tm_year = 2025 - 1900;
+      timeInfo.tm_mon = 6 - 1;
+      timeInfo.tm_mday = 14;
+      timeInfo.tm_hour = 12;
+      timeInfo.tm_min = 0;
+      timeInfo.tm_sec = 0;
+      timeInfo.tm_isdst = -1;
+      
+      time_t setTime = mktime(&timeInfo);
+      myRTC.setUnixTime(setTime);
+    }
     
     Serial.print("RTC time set to: ");
     Serial.println(asctime(myRTC.getTmTime()));
@@ -621,6 +708,13 @@ void loop() {
     time_t currentTime = myRTC.getUnixTime();
     Serial.print("Current time: ");
     Serial.println(asctime(myRTC.getTmTime()));
+  }
+  
+  // Sync time periodically (every 24 hours)
+  static unsigned long lastNTPSync = 0;
+  if (wifiConnected && millis() - lastNTPSync > 86400000) { // 24 hours in milliseconds
+    lastNTPSync = millis();
+    syncTimeFromNTP();
   }
   
   // Keep system responsive
